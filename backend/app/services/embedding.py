@@ -41,7 +41,7 @@ class EmbeddingService:
             return np.zeros(384)
         
         # Run in thread pool to not block
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(
             self.executor,
             self.text_model.encode,
@@ -62,7 +62,7 @@ class EmbeddingService:
             return [np.zeros(384) for _ in texts]
         
         # Run in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         embeddings = await loop.run_in_executor(
             self.executor,
             self.text_model.encode,
@@ -93,7 +93,7 @@ class EmbeddingService:
             inputs = self.clip_processor(images=image, return_tensors="pt")
             
             # Generate embedding in thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             def _embed():
                 import torch
@@ -131,3 +131,4 @@ class EmbeddingService:
 
 # Global instance
 embedding_service = EmbeddingService()
+
