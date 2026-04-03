@@ -1,4 +1,5 @@
 """Objects Router - CRUD operations for objects"""
+import uuid
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
@@ -75,7 +76,7 @@ async def create_object(obj: ObjectCreate):
     client = qdrant_manager.get_client()
     
     # Generate ID
-    object_id = str(__import__('uuid').uuid4())
+    object_id = str(uuid.uuid4())
     
     # Build content for embedding
     content = obj.content or obj.title
@@ -251,3 +252,4 @@ async def get_object_relations(object_id: str):
         "outgoing": [r.payload for r in outgoing],
         "incoming": [r.payload for r in incoming]
     }
+
