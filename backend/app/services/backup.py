@@ -3,11 +3,16 @@ import os
 import json
 import shutil
 import subprocess
+import logging
 from datetime import datetime
 from typing import Optional
 
+import httpx
+
 from app.config import settings
 from app.database.qdrant_client import qdrant_manager
+
+logger = logging.getLogger(__name__)
 
 
 class BackupService:
@@ -21,12 +26,12 @@ class BackupService:
         """Start the backup service"""
         self.running = True
         os.makedirs(self.backup_path, exist_ok=True)
-        print(f"✅ Backup service started (path: {self.backup_path})")
+        logger.info(f"Backup service started (path: {self.backup_path})")
     
     async def stop(self):
         """Stop the backup service"""
         self.running = False
-        print("🛑 Backup service stopped")
+        logger.info("Backup service stopped")
     
     async def run_backup(self, backup_type: str):
         """Run a backup of the specified type"""
@@ -44,8 +49,6 @@ class BackupService:
             snapshot_dir = os.path.join(self.backup_path, "snapshots")
             os.makedirs(snapshot_dir, exist_ok=True)
             
-            # Create snapshot via Qdrant API
-            import httpx
             qdrant_host = settings.qdrant_host
             qdrant_port = settings.qdrant_port
             
@@ -55,12 +58,12 @@ class BackupService:
                 )
                 
                 if response.status_code == 200:
-                    print(f"✅ Qdrant snapshot created: {timestamp}")
+                    logger.info(f"Qdrant snapshot created: {timestamp}")
                 else:
-                    print(f"⚠️ Qdrant snapshot failed: {response.text}")
+                    logger.warning(f"Qdrant snapshot failed: {response.text}")
                     
         except Exception as e:
-            print(f"❌ Error creating Qdrant snapshot: {e}")
+            logger.error(f"Error creating Qdrant snapshot: {e}")
     
     async def _export_markdown(self):
         """Export all objects to markdown files"""
@@ -69,27 +72,25 @@ class BackupService:
             export_dir = os.path.join(self.backup_path, "markdown", timestamp)
             os.makedirs(export_dir, exist_ok=True)
             
-            # Get all objects from Qdrant
-            client = qdrant_manager.get_client()
+            client = qdrant_manager.get_async_client()
             
             collections = ["objects", "blocks"]
             for collection in collections:
                 collection_dir = os.path.join(export_dir, collection)
                 os.makedirs(collection_dir, exist_ok=True)
                 
-                results, _ = client.scroll(
+                results = await client.scroll(
                     collection_name=collection,
                     limit=10000,
                     with_payload=True,
                     with_vectors=False
                 )
                 
-                for result in results:
+                for result in results[0]:
                     payload = result.payload
                     title = payload.get("title", "untitled")
                     content = payload.get("content", "")
                     
-                    # Create markdown file
                     filename = f"{result.id}.md"
                     filepath = os.path.join(collection_dir, filename)
                     
@@ -97,46 +98,40 @@ class BackupService:
                         f.write(f"# {title}\n\n")
                         f.write(content or "")
             
-            print(f"✅ Markdown export completed: {export_dir}")
+            logger.info(f"Markdown export completed: {export_dir}")
             
         except Exception as e:
-            print(f"❌ Error exporting markdown: {e}")
+            logger.error(f"Error exporting markdown: {e}")
     
     async def _git_sync(self):
         """Sync to Git repository"""
         try:
             git_repo = settings.git_repo_url
             if not git_repo:
-                print("⚠️ No Git repository configured")
+                logger.warning("No Git repository configured")
                 return
             
             git_dir = os.path.join(self.backup_path, "git")
             os.makedirs(git_dir, exist_ok=True)
             
-            # Check if repo exists
             if not os.path.exists(os.path.join(git_dir, ".git")):
-                # Clone repo
                 subprocess.run(
                     ["git", "clone", git_repo, "."],
                     cwd=git_dir,
                     check=True
                 )
             
-            # Pull latest
             subprocess.run(
                 ["git", "pull"],
                 cwd=git_dir,
                 check=True
             )
             
-            # Export markdown to git directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             export_subdir = os.path.join(git_dir, "exports", timestamp)
             
-            # Copy markdown export
             await self._export_markdown_to_dir(export_subdir)
             
-            # Commit and push
             subprocess.run(
                 ["git", "add", "."],
                 cwd=git_dir,
@@ -145,7 +140,7 @@ class BackupService:
             subprocess.run(
                 ["git", "commit", "-m", f"Auto-export {timestamp}"],
                 cwd=git_dir,
-                check=False  # May fail if no changes
+                check=False
             )
             subprocess.run(
                 ["git", "push"],
@@ -153,30 +148,30 @@ class BackupService:
                 check=True
             )
             
-            print(f"✅ Git sync completed")
+            logger.info("Git sync completed")
             
         except Exception as e:
-            print(f"❌ Error syncing to Git: {e}")
+            logger.error(f"Error syncing to Git: {e}")
     
     async def _export_markdown_to_dir(self, export_dir: str):
         """Export markdown to a specific directory"""
         os.makedirs(export_dir, exist_ok=True)
         
-        client = qdrant_manager.get_client()
+        client = qdrant_manager.get_async_client()
         
         collections = ["objects", "blocks"]
         for collection in collections:
             collection_dir = os.path.join(export_dir, collection)
             os.makedirs(collection_dir, exist_ok=True)
             
-            results, _ = client.scroll(
+            results = await client.scroll(
                 collection_name=collection,
                 limit=10000,
                 with_payload=True,
                 with_vectors=False
             )
             
-            for result in results:
+            for result in results[0]:
                 payload = result.payload
                 title = payload.get("title", "untitled")
                 content = payload.get("content", "")
