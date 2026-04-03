@@ -1,4 +1,6 @@
 """Qdrant Database Manager"""
+import logging
+
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PayloadSchemaType,
@@ -9,6 +11,8 @@ import uuid
 import asyncio
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 # Collection configurations
@@ -24,17 +28,17 @@ COLLECTIONS = {
         "on_disk_payload": False,
     },
     "relations": {
-        "vector_size": 384,  # Small vectors for relation context
+        "vector_size": 384,
         "distance": Distance.COSINE,
         "on_disk_payload": False,
     },
     "files": {
         "vector_size": 384,
         "distance": Distance.COSINE,
-        "on_disk_payload": True,  # Files can be large
+        "on_disk_payload": True,
     },
     "images": {
-        "vector_size": 512,  # CLIP dimension
+        "vector_size": 512,
         "distance": Distance.COSINE,
         "on_disk_payload": True,
     },
@@ -64,12 +68,12 @@ class QdrantManager:
         self.async_client: Optional[AsyncQdrantClient] = None
     
     async def initialize(self):
-        """Initialize Qdrant connection and collections"""
-        # Sync client for most operations
+        """Initialize Qdrant connection and create collections"""
+        # Sync client for initialization
         self.client = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
-            api_key=settings.qdrant_api_key,
+            api_key=settings.qdrant_api_key or None,
             prefer_grpc=True
         )
         
@@ -77,7 +81,7 @@ class QdrantManager:
         self.async_client = AsyncQdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
-            api_key=settings.qdrant_api_key,
+            api_key=settings.qdrant_api_key or None,
             prefer_grpc=True
         )
         
@@ -85,7 +89,7 @@ class QdrantManager:
         for collection_name, config in COLLECTIONS.items():
             await self._ensure_collection(collection_name, config)
         
-        print(f"✅ Qdrant initialized with {len(COLLECTIONS)} collections")
+        logger.info(f"Qdrant initialized with {len(COLLECTIONS)} collections")
     
     async def _ensure_collection(self, name: str, config: Dict[str, Any]):
         """Ensure a collection exists"""
@@ -95,7 +99,7 @@ class QdrantManager:
             exists = any(c.name == name for c in collections)
             
             if not exists:
-                print(f"📦 Creating collection: {name}")
+                logger.info(f"Creating collection: {name}")
                 
                 # Create collection
                 self.client.create_collection(
@@ -124,12 +128,12 @@ class QdrantManager:
                             field_schema=PayloadSchemaType.KEYWORD
                         )
                     except Exception as e:
-                        print(f"Warning: Could not create index: {e}")
+                        logger.warning(f"Could not create index: {e}")
                 
-                print(f"✅ Created collection: {name}")
+                logger.info(f"Created collection: {name}")
             
         except Exception as e:
-            print(f"❌ Error ensuring collection {name}: {e}")
+            logger.error(f"Error ensuring collection {name}: {e}")
             raise
     
     async def close(self):
@@ -138,6 +142,7 @@ class QdrantManager:
             self.client.close()
         if self.async_client:
             await self.async_client.close()
+        logger.info("Qdrant connections closed")
     
     # Convenience methods
     def get_client(self) -> QdrantClient:
