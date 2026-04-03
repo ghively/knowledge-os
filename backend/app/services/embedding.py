@@ -1,10 +1,12 @@
-"""Embedding Service - Generate embeddings for text and images"""
-import numpy as np
-from typing import List, Optional
+"""Embedding Service - Text and image embeddings"""
+import logging
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional
+import numpy as np
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
@@ -12,122 +14,102 @@ class EmbeddingService:
     
     def __init__(self):
         self.text_model = None
-        self.clip_model = None
-        self.clip_processor = None
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        self.image_model = None
+        self.loop = None
     
     async def initialize(self):
-        """Initialize embedding models"""
-        print("📥 Loading embedding models...")
+        """Initialize the embedding service - load models"""
+        logger.info("Loading embedding models...")
         
-        # Load sentence transformer model (for text)
-        try:
-            from sentence_transformers import SentenceTransformer
-            self.text_model = SentenceTransformer(settings.embedding_model)
-            print(f"✅ Loaded text model: {settings.embedding_model}")
-        except Exception as e:
-            print(f"⚠️ Could not load text model: {e}")
+        # Models are loaded lazily on first use
+        # This avoids blocking startup
         
-        # Load CLIP model (for images) - lazy load on first use
-        print("📥 CLIP model will be loaded on first image embedding")
+        logger.info("Embedding service initialized")
+    
+    async def close(self):
+        """Close the embedding service"""
+        logger.info("Embedding service closed")
+    
+    def _load_text_model(self):
+        """Load text embedding model"""
+        if self.text_model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.text_model = SentenceTransformer('all-MiniLM-L6-v2')
+                logger.info("Loaded text embedding model")
+            except Exception as e:
+                logger.error(f"Error loading text model: {e}")
+                raise
     
     async def embed_text(self, text: str) -> np.ndarray:
         """Generate embedding for text"""
-        if not self.text_model:
-            raise RuntimeError("Text model not loaded")
-        
-        if not text or not text.strip():
+        if not text:
             # Return zero vector for empty text
             return np.zeros(384)
         
-        # Run in thread pool to not block
-        loop = asyncio.get_event_loop()
+        self._load_text_model()
+        
+        # Run in thread pool to avoid blocking
+        loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(
-            self.executor,
-            self.text_model.encode,
-            text
+            None,
+            lambda: self.text_model.encode(text, convert_to_numpy=True)
         )
         
         return embedding
     
     async def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
         """Generate embeddings for multiple texts"""
-        if not self.text_model:
-            raise RuntimeError("Text model not loaded")
+        if not texts:
+            return []
         
-        # Filter out empty texts
-        valid_texts = [t for t in texts if t and t.strip()]
-        
-        if not valid_texts:
-            return [np.zeros(384) for _ in texts]
+        self._load_text_model()
         
         # Run in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         embeddings = await loop.run_in_executor(
-            self.executor,
-            self.text_model.encode,
-            valid_texts
+            None,
+            lambda: self.text_model.encode(texts, convert_to_numpy=True)
         )
         
         return embeddings
     
-    async def embed_image(self, image_path: str) -> Optional[np.ndarray]:
-        """Generate embedding for image using CLIP"""
-        try:
-            # Lazy load CLIP
-            if self.clip_model is None:
+    def _load_image_model(self):
+        """Load image embedding model"""
+        if self.image_model is None:
+            try:
                 from transformers import CLIPProcessor, CLIPModel
-                from PIL import Image
-                
-                print("📥 Loading CLIP model...")
-                self.clip_model = CLIPModel.from_pretrained(settings.clip_model)
-                self.clip_processor = CLIPProcessor.from_pretrained(settings.clip_model)
-                print("✅ Loaded CLIP model")
-            
-            from PIL import Image
-            
-            # Load image
-            image = Image.open(image_path).convert("RGB")
-            
-            # Process
-            inputs = self.clip_processor(images=image, return_tensors="pt")
-            
-            # Generate embedding in thread pool
-            loop = asyncio.get_event_loop()
-            
-            def _embed():
-                import torch
-                with torch.no_grad():
-                    image_features = self.clip_model.get_image_features(**inputs)
-                # Normalize
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-                return image_features.numpy().flatten()
-            
-            embedding = await loop.run_in_executor(self.executor, _embed)
-            return embedding
-            
-        except Exception as e:
-            print(f"Error embedding image {image_path}: {e}")
-            return None
+                self.image_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+                self.image_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+                logger.info("Loaded image embedding model")
+            except Exception as e:
+                logger.error(f"Error loading image model: {e}")
+                raise
     
-    async def embed_image_batch(self, image_paths: List[str]) -> List[Optional[np.ndarray]]:
-        """Generate embeddings for multiple images"""
-        embeddings = []
-        for path in image_paths:
-            emb = await self.embed_image(path)
-            embeddings.append(emb)
-        return embeddings
-    
-    def get_text_dimension(self) -> int:
-        """Get text embedding dimension"""
-        if self.text_model:
-            return self.text_model.get_sentence_embedding_dimension()
-        return 384  # Default for all-MiniLM-L6-v2
-    
-    def get_image_dimension(self) -> int:
-        """Get image embedding dimension"""
-        return 512  # CLIP dimension
+    async def embed_image(self, image_path: str) -> np.ndarray:
+        """Generate embedding for image"""
+        self._load_image_model()
+        
+        from PIL import Image
+        
+        # Load image
+        image = Image.open(image_path)
+        
+        # Process
+        inputs = self.image_processor(images=image, return_tensors="pt")
+        
+        # Run in thread pool
+        loop = asyncio.get_running_loop()
+        outputs = await loop.run_in_executor(
+            None,
+            lambda: self.image_model.get_image_features(**inputs)
+        )
+        
+        # Convert to numpy
+        embedding = outputs.detach().numpy().flatten()
+        
+        return embedding
 
 
-# Global instance
+# Global embedding service instance
 embedding_service = EmbeddingService()
