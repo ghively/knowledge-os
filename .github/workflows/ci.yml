@@ -71,13 +71,13 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Check formatting with black
-      run: black --check . || true
+      run: black --check .
 
     - name: Check imports with isort
-      run: isort --check-only . || true
+      run: isort --check-only .
 
     - name: Run tests
-      run: pytest || true
+      run: pytest
 
   # Docker build test
   docker:
@@ -129,3 +129,4 @@ jobs:
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
+
