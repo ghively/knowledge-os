@@ -42,7 +42,7 @@ jobs:
       run: npm run build
 
     - name: Test (if tests exist)
-      run: npm test -- --passWithNoTests || true
+      run: npm test -- --passWithNoTests
 
   # Backend checks
   backend:
@@ -132,3 +132,4 @@ jobs:
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
+
