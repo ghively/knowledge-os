@@ -8,7 +8,7 @@ pydantic-settings==2.1.0
 qdrant-client==1.7.2
 sentence-transformers==2.2.2
 transformers==4.36.2
-torch==2.1.2
+torch==2.11.0
 Pillow==10.2.0
 numpy==1.26.3
 aiofiles==23.2.1
