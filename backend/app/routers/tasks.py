@@ -1,272 +1,268 @@
-"""Tasks Router - Task management and agent assignment"""
-from fastapi import APIRouter, HTTPException
+"""Tasks Router - Task management and assignment"""
+import uuid
+import logging
+
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import List, Optional
 from datetime import datetime
 
 from app.database.qdrant_client import qdrant_manager
-from app.models.objects import TaskStatus, Priority
-from app.models.tasks import TaskAssignment, TaskStatusUpdate, TaskContext
+from app.models.tasks import Task, TaskCreate, TaskUpdate, TaskListResponse, TaskStatus, Priority
 from app.services.websocket_manager import websocket_manager, WebSocketEvents
+from app.services.embedding import embedding_service
 from app.services.openclaw import openclaw_service
 from app.services.context_builder import context_builder
-from app.services.embedding import embedding_service
+from app.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
 async def list_tasks(
-    status: Optional[TaskStatus] = None,
-    priority: Optional[Priority] = None,
-    assigned_to: Optional[str] = None
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=1000)
 ):
     """List tasks with optional filtering"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Build filter
-    must_conditions = [{"key": "type", "match": {"value": "task"}}]
+    query_filter = {"must": [{"key": "type", "match": {"value": "task"}}]}
     
     if status:
-        must_conditions.append({"key": "properties.status", "match": {"value": status}})
+        query_filter["must"].append({"key": "properties.status", "match": {"value": status}})
     
     if priority:
-        must_conditions.append({"key": "properties.priority", "match": {"value": priority}})
+        query_filter["must"].append({"key": "properties.priority", "match": {"value": priority}})
     
     if assigned_to:
-        must_conditions.append({"key": "properties.assigned_to", "match": {"value": assigned_to}})
+        query_filter["must"].append({"key": "properties.assigned_to", "match": {"value": assigned_to}})
     
-    # Query
-    results = client.scroll(
+    results = await client.scroll(
         collection_name="objects",
-        scroll_filter={"must": must_conditions},
-        limit=1000,
-        with_payload=True
-    )[0]
+        scroll_filter=query_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False
+    )
     
     tasks = []
-    for result in results:
+    for result in results[0]:
         payload = result.payload
         payload["id"] = result.id
         tasks.append(payload)
     
-    # Sort by priority and due date
-    priority_order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
-    tasks.sort(key=lambda t: (
-        priority_order.get(t.get("properties", {}).get("priority", "medium"), 2),
-        t.get("properties", {}).get("due_date") or "9999-12-31"
-    ))
-    
-    # Count by status and priority
-    by_status = {}
-    by_priority = {}
-    for task in tasks:
-        s = task.get("properties", {}).get("status", "unknown")
-        p = task.get("properties", {}).get("priority", "unknown")
-        by_status[s] = by_status.get(s, 0) + 1
-        by_priority[p] = by_priority.get(p, 0) + 1
-    
-    return {
-        "tasks": tasks,
-        "total": len(tasks),
-        "by_status": by_status,
-        "by_priority": by_priority
-    }
+    return TaskListResponse(tasks=tasks)
 
 
 @router.get("/{task_id}")
 async def get_task(task_id: str):
-    """Get a single task by ID"""
-    client = qdrant_manager.get_client()
+    """Get a single task"""
+    client = qdrant_manager.get_async_client()
     
-    result = client.retrieve(
+    results = await client.retrieve(
         collection_name="objects",
         ids=[task_id],
         with_payload=True,
         with_vectors=False
     )
     
-    if not result:
+    if not results:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    payload = result[0].payload
-    payload["id"] = result[0].id
+    payload = results[0].payload
+    payload["id"] = results[0].id
+    
     return payload
 
 
 @router.post("/{task_id}/assign")
-async def assign_task(task_id: str, assignment: TaskAssignment):
+async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTasks):
     """Assign a task to an agent"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
+    
+    agent_name = data.get("agent_name")
+    priority = data.get("priority", "medium")
+    include_context = data.get("include_context", True)
+    additional_context = data.get("additional_context", [])
+    
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="agent_name is required")
     
     # Get task
-    result = client.retrieve(
+    task_result = await client.retrieve(
         collection_name="objects",
         ids=[task_id],
         with_payload=True,
         with_vectors=False
     )
     
-    if not result:
+    if not task_result:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    task = result[0].payload
+    task = task_result[0].payload
     
-    # Update task properties
-    task["properties"]["assigned_to"] = assignment.agent_name
-    task["properties"]["priority"] = assignment.priority
-    task["properties"]["status"] = "todo"
-    task["properties"]["updated_at"] = datetime.now().isoformat()
-    
-    # Update in Qdrant
-    client.set_payload(
-        collection_name="objects",
-        payload=task,
-        points=[task_id]
-    )
-    
-    # Determine assignment method based on priority
-    if assignment.priority in [Priority.LOW]:
-        # Low priority: write to HEARTBEAT.md
-        success = await openclaw_service.write_to_heartbeat(
-            assignment.agent_name,
-            {"id": task_id, "title": task["title"], "content": task.get("content", "")}
+    # Build context if requested
+    context = None
+    if include_context:
+        context = await context_builder.build_task_context(
+            task_id=task_id,
+            additional_objects=additional_context
         )
-        assignment_type = "heartbeat"
-    else:
-        # Medium/High/Urgent: direct assignment with full context
-        if assignment.include_context:
-            # Build context
-            parent_id = task.get("properties", {}).get("parent_object_id")
-            additional = assignment.additional_context or []
-            
-            context = await context_builder.build_task_context(
-                task_id=task_id,
-                object_id=task_id,
-                parent_object_id=parent_id,
-                additional_object_ids=additional
-            )
-            context["priority"] = assignment.priority.value
-        else:
-            context = {
-                "task_id": task_id,
-                "task_title": task["title"],
-                "task_content": task.get("content", ""),
-                "priority": assignment.priority.value
-            }
+    
+    # Route based on priority
+    if priority in ["urgent", "high", "medium"]:
+        # Direct API call
+        logger.info(f"Assigning task {task_id} to {agent_name} via direct API")
         
-        # Send to agent
-        success = await openclaw_service.assign_task(
-            task_id=task_id,
-            agent_name=assignment.agent_name,
-            context=context
+        try:
+            response = await openclaw_service.assign_task(
+                agent_name=agent_name,
+                task_id=task_id,
+                task_content=task.get("content", ""),
+                context=context
+            )
+            
+            # Update task status
+            task["properties"]["status"] = "in-progress"
+            task["properties"]["assigned_to"] = agent_name
+            task["properties"]["assigned_at"] = datetime.now().isoformat()
+            
+            await client.set_payload(
+                collection_name="objects",
+                payload=task,
+                points=[task_id]
+            )
+            
+            return {
+                "message": "Task assigned via direct API",
+                "task_id": task_id,
+                "agent": agent_name,
+                "response": response
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to assign task via API: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to assign task: {str(e)}")
+    
+    else:
+        # Low priority - write to HEARTBEAT.md
+        logger.info(f"Assigning task {task_id} to {agent_name} via HEARTBEAT.md")
+        
+        # Write to heartbeat file
+        heartbeat_entry = f"""
+## Task Assignment - {datetime.now().isoformat()}
+
+**Task ID:** {task_id}
+**Agent:** {agent_name}
+**Priority:** {priority}
+**Content:** {task.get('content', '')}
+
+{context if context else ''}
+
+---
+"""
+        # Store in agent_memories collection instead of file
+        memory_id = str(uuid.uuid4())
+        embedding = await embedding_service.embed_text(task.get("content", ""))
+        
+        await client.upsert(
+            collection_name="agent_memories",
+            points=[{
+                "id": memory_id,
+                "vector": embedding.tolist(),
+                "payload": {
+                    "id": memory_id,
+                    "agent_name": agent_name,
+                    "task_id": task_id,
+                    "content": heartbeat_entry,
+                    "type": "heartbeat_task",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }]
         )
-        assignment_type = "direct"
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to assign task to agent")
-    
-    # Broadcast event
-    await websocket_manager.broadcast(
-        WebSocketEvents.task_assigned(
-            task_id=task_id,
-            agent_name=assignment.agent_name,
-            priority=assignment.priority.value,
-            assignment_type=assignment_type
+        
+        # Update task status
+        task["properties"]["status"] = "queued"
+        task["properties"]["assigned_to"] = agent_name
+        
+        await client.set_payload(
+            collection_name="objects",
+            payload=task,
+            points=[task_id]
         )
-    )
-    
-    return {
-        "message": "Task assigned",
-        "task_id": task_id,
-        "agent_name": assignment.agent_name,
-        "assignment_type": assignment_type
-    }
+        
+        return {
+            "message": "Task queued in agent memories",
+            "task_id": task_id,
+            "agent": agent_name,
+            "memory_id": memory_id
+        }
 
 
 @router.post("/{task_id}/status")
-async def update_task_status(task_id: str, update: TaskStatusUpdate):
-    """Update task status (called by agent via skill)"""
-    client = qdrant_manager.get_client()
+async def update_task_status(task_id: str, data: dict):
+    """Update task status (called by agents)"""
+    client = qdrant_manager.get_async_client()
+    
+    agent_name = data.get("agent_name")
+    status = data.get("status")
+    current_action = data.get("current_action")
+    notes = data.get("notes")
+    
+    if not status:
+        raise HTTPException(status_code=400, detail="status is required")
+    
+    # Validate status
+    valid_statuses = ["todo", "in-progress", "blocked", "review", "done"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     
     # Get task
-    result = client.retrieve(
+    task_result = await client.retrieve(
         collection_name="objects",
         ids=[task_id],
         with_payload=True,
         with_vectors=False
     )
     
-    if not result:
+    if not task_result:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    task = result[0].payload
-    old_status = task["properties"].get("status", "todo")
+    task = task_result[0].payload
     
     # Update status
-    task["properties"]["status"] = update.status
-    task["properties"]["current_action"] = update.current_action
-    task["properties"]["updated_at"] = datetime.now().isoformat()
+    task["properties"]["status"] = status
     
-    if update.notes:
-        task["properties"]["notes"] = update.notes
+    if current_action:
+        task["properties"]["current_action"] = current_action
     
-    if update.status == TaskStatus.DONE:
+    if notes:
+        task["properties"]["notes"] = notes
+    
+    if status == "done":
         task["properties"]["completed_at"] = datetime.now().isoformat()
     
-    # Update in Qdrant
-    client.set_payload(
+    await client.set_payload(
         collection_name="objects",
         payload=task,
         points=[task_id]
     )
     
     # Broadcast event
-    if update.status == TaskStatus.DONE:
-        await websocket_manager.broadcast(
-            WebSocketEvents.task_completed(
-                task_id=task_id,
-                agent_name=update.agent_name,
-                notes=update.notes
-            )
-        )
-    else:
-        await websocket_manager.broadcast(
-            WebSocketEvents.task_status_changed(
-                task_id=task_id,
-                old_status=old_status,
-                new_status=update.status,
-                agent_name=update.agent_name,
-                current_action=update.current_action
-            )
-        )
+    await websocket_manager.broadcast(
+        WebSocketEvents.task_status_changed(task_id, status, agent_name)
+    )
     
-    return {"message": "Status updated", "task_id": task_id, "status": update.status}
+    logger.info(f"Task {task_id} status updated to {status} by {agent_name}")
+    
+    return {"message": "Status updated", "task_id": task_id, "status": status}
 
 
 @router.get("/{task_id}/context")
 async def get_task_context(task_id: str):
-    """Get the context that would be sent to an agent"""
-    client = qdrant_manager.get_client()
-    
-    # Get task
-    result = client.retrieve(
-        collection_name="objects",
-        ids=[task_id],
-        with_payload=True,
-        with_vectors=False
-    )
-    
-    if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    task = result[0].payload
-    parent_id = task.get("properties", {}).get("parent_object_id")
-    
-    # Build context
-    context = await context_builder.build_task_context(
-        task_id=task_id,
-        object_id=task_id,
-        parent_object_id=parent_id
-    )
-    
-    return context
+    """Get context for a task"""
+    context = await context_builder.build_task_context(task_id=task_id)
+    return {"context": context}

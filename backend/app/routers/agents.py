@@ -1,92 +1,88 @@
 """Agents Router - Agent management and chat"""
-from fastapi import APIRouter, HTTPException
+import uuid
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
 
 from app.database.qdrant_client import qdrant_manager
-from app.services.openclaw import openclaw_service
 from app.services.websocket_manager import websocket_manager, WebSocketEvents
 from app.services.embedding import embedding_service
+from app.services.openclaw import openclaw_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
 async def list_agents():
-    """List all agents (from agent objects)"""
-    client = qdrant_manager.get_client()
-    
-    results = client.scroll(
-        collection_name="objects",
-        scroll_filter={
-            "must": [{"key": "type", "match": {"value": "agent"}}]
+    """List all registered agents"""
+    # This would typically come from OpenClaw or a local registry
+    # For now, return a placeholder list
+    agents = [
+        {
+            "id": "agent-1",
+            "name": "researcher",
+            "description": "Research and information gathering agent",
+            "status": "idle",
+            "capabilities": ["search", "summarize", "analyze"]
         },
-        limit=100,
-        with_payload=True
-    )[0]
-    
-    agents = []
-    for result in results:
-        payload = result.payload
-        payload["id"] = result.id
-        agents.append(payload)
+        {
+            "id": "agent-2",
+            "name": "writer",
+            "description": "Content writing and editing agent",
+            "status": "idle",
+            "capabilities": ["write", "edit", "format"]
+        }
+    ]
     
     return {"agents": agents}
 
 
-@router.get("/{agent_name}")
-async def get_agent(agent_name: str):
+@router.get("/{name}")
+async def get_agent(name: str):
     """Get agent details"""
-    client = qdrant_manager.get_client()
-    
-    # Search by agent_name property
-    results = client.scroll(
-        collection_name="objects",
-        scroll_filter={
-            "must": [
-                {"key": "type", "match": {"value": "agent"}},
-                {"key": "properties.agent_name", "match": {"value": agent_name}}
-            ]
-        },
-        limit=1,
-        with_payload=True
-    )[0]
-    
-    if not results:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    payload = results[0].payload
-    payload["id"] = results[0].id
-    
-    # Get agent status from OpenClaw
-    status = await openclaw_service.get_agent_status(agent_name)
-    payload["live_status"] = status
-    
-    return payload
+    # Placeholder - would fetch from OpenClaw
+    return {
+        "id": f"agent-{name}",
+        "name": name,
+        "description": f"Agent {name}",
+        "status": "idle",
+        "capabilities": []
+    }
 
 
-@router.get("/{agent_name}/tasks")
-async def get_agent_tasks(agent_name: str, status: Optional[str] = None):
+@router.get("/{name}/tasks")
+async def get_agent_tasks(
+    name: str,
+    status: Optional[str] = None
+):
     """Get tasks assigned to an agent"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    must_conditions = [
-        {"key": "type", "match": {"value": "task"}},
-        {"key": "properties.assigned_to", "match": {"value": agent_name}}
-    ]
+    query_filter = {
+        "must": [
+            {"key": "type", "match": {"value": "task"}},
+            {"key": "properties.assigned_to", "match": {"value": name}}
+        ]
+    }
     
     if status:
-        must_conditions.append({"key": "properties.status", "match": {"value": status}})
+        query_filter["must"].append(
+            {"key": "properties.status", "match": {"value": status}}
+        )
     
-    results = client.scroll(
+    results = await client.scroll(
         collection_name="objects",
-        scroll_filter={"must": must_conditions},
+        scroll_filter=query_filter,
         limit=100,
-        with_payload=True
-    )[0]
+        with_payload=True,
+        with_vectors=False
+    )
     
     tasks = []
-    for result in results:
+    for result in results[0]:
         payload = result.payload
         payload["id"] = result.id
         tasks.append(payload)
@@ -94,108 +90,141 @@ async def get_agent_tasks(agent_name: str, status: Optional[str] = None):
     return {"tasks": tasks}
 
 
-@router.post("/{agent_name}/chat")
-async def chat_with_agent(agent_name: str, message: dict):
+@router.post("/{name}/chat")
+async def chat_with_agent(name: str, data: dict):
     """Send a message to an agent"""
-    content = message.get("content", "")
-    session_id = message.get("session_id", "main")
+    client = qdrant_manager.get_async_client()
+    
+    content = data.get("content", "")
+    session_id = data.get("session_id")
     
     if not content:
-        raise HTTPException(status_code=400, detail="Message content required")
+        raise HTTPException(status_code=400, detail="content is required")
     
-    # Send to OpenClaw
-    result = await openclaw_service.send_message(
-        agent_name=agent_name,
-        message=content,
-        session_id=session_id
-    )
+    # Store user message
+    message_id = str(uuid.uuid4())
+    timestamp = datetime.utcnow().isoformat()
     
-    if "error" in result:
-        raise HTTPException(status_code=500, detail=result["error"])
+    embedding = await embedding_service.embed_text(content)
     
-    # Store chat log in Qdrant
-    await _store_chat_message(
-        session_id=session_id,
-        agent_name=agent_name,
-        message_type="user",
-        content=content
-    )
-    
-    # Store agent response
-    agent_content = result.get("content", "")
-    if agent_content:
-        await _store_chat_message(
-            session_id=session_id,
-            agent_name=agent_name,
-            message_type="agent",
-            content=agent_content,
-            metadata={
-                "tools_used": result.get("tools_used", []),
-                "agent_thoughts": result.get("thoughts", "")
+    await client.upsert(
+        collection_name="chat_logs",
+        points=[{
+            "id": message_id,
+            "vector": embedding.tolist(),
+            "payload": {
+                "id": message_id,
+                "role": "user",
+                "content": content,
+                "agent_name": name,
+                "session_id": session_id,
+                "timestamp": timestamp
             }
-        )
-    
-    # Broadcast chat message
-    await websocket_manager.broadcast(
-        WebSocketEvents.chat_message(
-            session_id=session_id,
-            agent_name=agent_name,
-            message_type="agent",
-            content=agent_content
-        )
+        }]
     )
     
-    return result
+    # Send to agent
+    try:
+        response = await openclaw_service.send_message(name, content)
+        
+        # Store agent response
+        response_id = str(uuid.uuid4())
+        response_content = response.get("content", "")
+        response_embedding = await embedding_service.embed_text(response_content)
+        
+        await client.upsert(
+            collection_name="chat_logs",
+            points=[{
+                "id": response_id,
+                "vector": response_embedding.tolist(),
+                "payload": {
+                    "id": response_id,
+                    "role": "agent",
+                    "content": response_content,
+                    "agent_name": name,
+                    "session_id": session_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "metadata": response.get("metadata", {})
+                }
+            }]
+        )
+        
+        # Broadcast event
+        await websocket_manager.broadcast(
+            WebSocketEvents.agent_message(name, response_content)
+        )
+        
+        return {
+            "message_id": message_id,
+            "response_id": response_id,
+            "response": response
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sending message to agent {name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
 
 
-@router.get("/{agent_name}/chat")
-async def get_chat_history(agent_name: str, session_id: Optional[str] = None):
+@router.get("/{name}/chat")
+async def get_chat_history(
+    name: str,
+    session_id: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200)
+):
     """Get chat history with an agent"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    must_conditions = [
-        {"key": "agent_name", "match": {"value": agent_name}}
-    ]
+    query_filter = {
+        "must": [{"key": "agent_name", "match": {"value": name}}]
+    }
     
     if session_id:
-        must_conditions.append({"key": "session_id", "match": {"value": session_id}})
+        query_filter["must"].append(
+            {"key": "session_id", "match": {"value": session_id}}
+        )
     
-    results = client.scroll(
+    results = await client.scroll(
         collection_name="chat_logs",
-        scroll_filter={"must": must_conditions},
-        limit=100,
-        with_payload=True
-    )[0]
+        scroll_filter=query_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False
+    )
     
     messages = []
-    for result in results:
+    for result in results[0]:
         payload = result.payload
         payload["id"] = result.id
         messages.append(payload)
     
     # Sort by timestamp
-    messages.sort(key=lambda m: m.get("timestamp", ""))
+    messages.sort(key=lambda x: x.get("timestamp", ""))
     
     return {"messages": messages}
 
 
-@router.get("/{agent_name}/memories")
-async def get_agent_memories(agent_name: str, query: Optional[str] = None):
-    """Get agent memories, optionally filtered by query"""
-    client = qdrant_manager.get_client()
+@router.get("/{name}/memories")
+async def get_agent_memories(
+    name: str,
+    query: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Get memories for an agent"""
+    client = qdrant_manager.get_async_client()
     
     if query:
         # Semantic search
-        embedding = await embedding_service.embed_text(query)
+        query_embedding = await embedding_service.embed_text(query)
         
-        results = client.search(
+        results = await client.search(
             collection_name="agent_memories",
-            query_vector=embedding.tolist(),
+            query_vector=query_embedding.tolist(),
             query_filter={
-                "must": [{"key": "agent_name", "match": {"value": agent_name}}]
+                "must": [{"key": "agent_name", "match": {"value": name}}]
             },
-            limit=20,
-            with_payload=True
+            limit=limit,
+            with_payload=True,
+            with_vectors=False
         )
         
         memories = []
@@ -206,53 +235,20 @@ async def get_agent_memories(agent_name: str, query: Optional[str] = None):
             memories.append(payload)
     else:
         # Get all memories
-        results = client.scroll(
+        results = await client.scroll(
             collection_name="agent_memories",
             scroll_filter={
-                "must": [{"key": "agent_name", "match": {"value": agent_name}}]
+                "must": [{"key": "agent_name", "match": {"value": name}}]
             },
-            limit=100,
-            with_payload=True
-        )[0]
+            limit=limit,
+            with_payload=True,
+            with_vectors=False
+        )
         
         memories = []
-        for result in results:
+        for result in results[0]:
             payload = result.payload
             payload["id"] = result.id
             memories.append(payload)
-        
-        # Sort by timestamp
-        memories.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
     
     return {"memories": memories}
-
-
-async def _store_chat_message(session_id: str, agent_name: str, 
-                               message_type: str, content: str,
-                               metadata: dict = None):
-    """Store a chat message in Qdrant"""
-    client = qdrant_manager.get_client()
-    
-    message_id = str(__import__('uuid').uuid4())
-    
-    # Generate embedding
-    embedding = await embedding_service.embed_text(content)
-    
-    payload = {
-        "id": message_id,
-        "session_id": session_id,
-        "agent_name": agent_name,
-        "message_type": message_type,
-        "content": content,
-        "timestamp": datetime.now().isoformat(),
-        "metadata": metadata or {}
-    }
-    
-    client.upsert(
-        collection_name="chat_logs",
-        points=[{
-            "id": message_id,
-            "vector": embedding.tolist(),
-            "payload": payload
-        }]
-    )

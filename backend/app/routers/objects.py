@@ -1,4 +1,7 @@
 """Objects Router - CRUD operations for objects"""
+import uuid
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
@@ -9,6 +12,7 @@ from app.services.websocket_manager import websocket_manager, WebSocketEvents
 from app.services.embedding import embedding_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=ObjectListResponse)
@@ -18,7 +22,7 @@ async def list_objects(
     offset: int = Query(0, ge=0)
 ):
     """List all objects with optional filtering"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Build filter
     query_filter = None
@@ -27,8 +31,8 @@ async def list_objects(
             "must": [{"key": "type", "match": {"value": type}}]
         }
     
-    # Scroll through collection
-    results, next_offset = client.scroll(
+    # Scroll through collection using async client
+    results = await client.scroll(
         collection_name="objects",
         scroll_filter=query_filter,
         limit=limit,
@@ -38,58 +42,55 @@ async def list_objects(
     )
     
     objects = []
-    for result in results:
+    for result in results[0]:  # results is a tuple (points, next_offset)
         payload = result.payload
         payload["id"] = result.id
         objects.append(payload)
     
     return ObjectListResponse(
         objects=objects,
-        total=len(objects)  # Note: Qdrant doesn't give total count easily
+        total=len(objects)
     )
 
 
 @router.get("/{object_id}")
 async def get_object(object_id: str):
     """Get a single object by ID"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    result = client.retrieve(
+    results = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
         with_payload=True,
         with_vectors=False
     )
     
-    if not result:
+    if not results:
         raise HTTPException(status_code=404, detail="Object not found")
     
-    payload = result[0].payload
-    payload["id"] = result[0].id
+    payload = results[0].payload
+    payload["id"] = results[0].id
+    
     return payload
 
 
 @router.post("")
 async def create_object(obj: ObjectCreate):
     """Create a new object"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Generate ID
-    object_id = str(__import__('uuid').uuid4())
+    object_id = str(uuid.uuid4())
     
-    # Build content for embedding
+    # Generate embedding from content or title
     content = obj.content or obj.title
-    
-    # Generate embedding
     embedding = await embedding_service.embed_text(content)
     
-    # Set timestamps
-    now = datetime.now().isoformat()
-    properties = obj.properties or {}
-    properties.created_at = now
-    properties.updated_at = now
-    
     # Build payload
+    properties = obj.properties or {}
+    properties["created_at"] = datetime.now().isoformat()
+    properties["updated_at"] = datetime.now().isoformat()
+    
     payload = {
         "id": object_id,
         "type": obj.type,
@@ -100,8 +101,8 @@ async def create_object(obj: ObjectCreate):
         "layout": obj.layout or "default"
     }
     
-    # Insert into Qdrant
-    client.upsert(
+    # Insert into Qdrant using async client
+    await client.upsert(
         collection_name="objects",
         points=[{
             "id": object_id,
@@ -115,16 +116,18 @@ async def create_object(obj: ObjectCreate):
         WebSocketEvents.object_created(object_id, obj.type, obj.title)
     )
     
+    logger.info(f"Created object: {object_id} ({obj.type})")
+    
     return payload
 
 
 @router.put("/{object_id}")
 async def update_object(object_id: str, update: ObjectUpdate):
     """Update an object"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Get existing object
-    existing = client.retrieve(
+    existing = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
         with_payload=True,
@@ -167,7 +170,7 @@ async def update_object(object_id: str, update: ObjectUpdate):
             payload["content"] or payload["title"]
         )
         
-        client.upsert(
+        await client.upsert(
             collection_name="objects",
             points=[{
                 "id": object_id,
@@ -176,8 +179,8 @@ async def update_object(object_id: str, update: ObjectUpdate):
             }]
         )
     else:
-        # Just update payload
-        client.set_payload(
+        # Just update payload without regenerating embedding
+        await client.set_payload(
             collection_name="objects",
             payload=payload,
             points=[object_id]
@@ -188,28 +191,29 @@ async def update_object(object_id: str, update: ObjectUpdate):
         WebSocketEvents.object_updated(object_id, changes)
     )
     
-    payload["id"] = object_id
+    logger.info(f"Updated object: {object_id}")
+    
     return payload
 
 
 @router.delete("/{object_id}")
 async def delete_object(object_id: str):
     """Delete an object"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    # Check if exists
-    existing = client.retrieve(
+    # Check if object exists
+    existing = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
-        with_payload=True,
+        with_payload=False,
         with_vectors=False
     )
     
     if not existing:
         raise HTTPException(status_code=404, detail="Object not found")
     
-    # Delete
-    client.delete(
+    # Delete from Qdrant
+    await client.delete(
         collection_name="objects",
         points_selector=[object_id]
     )
@@ -219,35 +223,31 @@ async def delete_object(object_id: str):
         WebSocketEvents.object_deleted(object_id)
     )
     
-    return {"message": "Object deleted", "id": object_id}
+    logger.info(f"Deleted object: {object_id}")
+    
+    return {"message": "Object deleted"}
 
 
 @router.get("/{object_id}/relations")
 async def get_object_relations(object_id: str):
-    """Get all relations for an object"""
-    client = qdrant_manager.get_client()
+    """Get relations for an object"""
+    client = qdrant_manager.get_async_client()
     
-    # Get outgoing relations
-    outgoing = client.scroll(
+    # Query relations collection
+    results = await client.scroll(
         collection_name="relations",
         scroll_filter={
             "must": [{"key": "source_id", "match": {"value": object_id}}]
         },
         limit=100,
-        with_payload=True
-    )[0]
+        with_payload=True,
+        with_vectors=False
+    )
     
-    # Get incoming relations
-    incoming = client.scroll(
-        collection_name="relations",
-        scroll_filter={
-            "must": [{"key": "target_id", "match": {"value": object_id}}]
-        },
-        limit=100,
-        with_payload=True
-    )[0]
+    relations = []
+    for result in results[0]:
+        payload = result.payload
+        payload["id"] = result.id
+        relations.append(payload)
     
-    return {
-        "outgoing": [r.payload for r in outgoing],
-        "incoming": [r.payload for r in incoming]
-    }
+    return {"relations": relations}
