@@ -1,0 +1,17 @@
+# Global code owners
+* @ghively
+
+# Frontend code
+/frontend/ @ghively
+
+# Backend code
+/backend/ @ghively
+
+# Docker and deployment
+/docker-compose.yml @ghively
+/Dockerfile* @ghively
+/.github/workflows/ @ghively
+
+# Documentation
+/*.md @ghively
+/docs/ @ghively
