@@ -10,6 +10,7 @@ from app.database.sqlite import sqlite_manager
 from app.services.websocket_manager import websocket_manager
 from app.services.file_watcher import file_watcher_service
 from app.services.backup import backup_service
+from app.services.embedding import embedding_service
 from app.services.openclaw import openclaw_service
 from app.routers import objects, blocks, tasks, search, agents, chat, files, settings as settings_router
 
@@ -23,6 +24,9 @@ async def lifespan(app: FastAPI):
     # Initialize databases
     await qdrant_manager.initialize()
     await sqlite_manager.initialize()
+    
+    # Initialize embedding service
+    await embedding_service.initialize()
     
     # Start background services
     await file_watcher_service.start()
@@ -126,3 +130,4 @@ if __name__ == "__main__":
         ws_ping_interval=20,
         ws_ping_timeout=20
     )
+
