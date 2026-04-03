@@ -1,4 +1,5 @@
 """File Watcher Service - Monitors folders and indexes files"""
+import uuid
 import os
 import hashlib
 from pathlib import Path
@@ -22,18 +23,22 @@ class FileEventHandler(FileSystemEventHandler):
     
     def on_created(self, event):
         if not event.is_directory:
-            asyncio.create_task(self.watcher.handle_file_created(event.src_path))
+            asyncio.run_coroutine_threadsafe(self.watcher.handle_file_created(event.src_path), self.watcher.loop)
     
     def on_modified(self, event):
         if not event.is_directory:
-            asyncio.create_task(self.watcher.handle_file_modified(event.src_path))
+            asyncio.run_coroutine_threadsafe(self.watcher.handle_file_modified(event.src_path), self.watcher.loop)
     
     def on_deleted(self, event):
         if not event.is_directory:
-            asyncio.create_task(self.watcher.handle_file_deleted(event.src_path))
+            asyncio.run_coroutine_threadsafe(self.watcher.handle_file_deleted(event.src_path), self.watcher.loop)
 
 
 class FileWatcherService:
+    """Service for watching file system changes"""
+    
+    def __init__(self):
+        self.loop = None
     """Service for watching file system changes"""
     
     def __init__(self):
@@ -43,6 +48,8 @@ class FileWatcherService:
         self.is_running = False
     
     async def start(self):
+        """Start the file watcher service"""
+        self.loop = asyncio.get_running_loop()
         """Start file watcher"""
         if self.is_running:
             return
@@ -208,7 +215,7 @@ class FileWatcherService:
         if not os.path.exists(path):
             return False
         
-        folder_id = str(__import__('uuid').uuid4())
+        folder_id = str(uuid.uuid4())
         
         success = await sqlite_manager.add_watched_folder(
             folder_id=folder_id,
@@ -244,3 +251,4 @@ class FileWatcherService:
 
 # Global instance
 file_watcher_service = FileWatcherService()
+
