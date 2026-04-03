@@ -1,77 +1,42 @@
-"""Configuration for Knowledge OS Backend"""
-from pydantic_settings import BaseSettings
-from typing import List, Optional
+"""Application Configuration"""
 import os
+from typing import List
 
 
-class Settings(BaseSettings):
+class Settings:
     """Application settings"""
     
-    # App
-    app_name: str = "Knowledge OS"
-    app_version: str = "0.1.0"
-    debug: bool = False
+    # Qdrant settings
+    qdrant_host: str = os.getenv("QDRANT_HOST", "localhost")
+    qdrant_port: int = int(os.getenv("QDRANT_PORT", "6333"))
+    qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     
-    # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
+    # SQLite settings
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///app/data/knowledge_os.db")
     
-    # Qdrant
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_api_key: Optional[str] = None
+    # OpenClaw settings
+    openclaw_url: str = os.getenv("OPENCLAW_URL", "http://localhost:18789")
+    openclaw_token: str = os.getenv("OPENCLAW_TOKEN", "")
     
-    # SQLite
-    sqlite_path: str = "./data/knowledge_os.db"
+    # Backup settings
+    backup_path: str = os.getenv("BACKUP_PATH", "/app/backups")
     
-    # OpenClaw Gateway
-    openclaw_gateway_url: str = "http://localhost:18789"
-    openclaw_gateway_token: Optional[str] = None
-    openclaw_enabled: bool = True
+    # CORS settings
+    @property
+    def cors_origins(self) -> List[str]:
+        """Get CORS origins from environment"""
+        origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
+        return [origin.strip() for origin in origins.split(",")]
     
-    # Embeddings
-    embedding_model: str = "all-MiniLM-L6-v2"  # 384 dims
-    clip_model: str = "openai/clip-vit-base-patch32"  # 512 dims
+    # Logging
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
     
-    # File Watcher
-    watched_folders: List[str] = []
-    max_file_size_mb: int = 50
-    exclude_patterns: List[str] = [
-        ".git", "node_modules", "__pycache__", ".venv", "venv",
-        ".pytest_cache", "*.tmp", "*.log", ".DS_Store", "Thumbs.db",
-        ".idea", ".vscode", "dist", "build", ".next"
-    ]
-    include_patterns: List[str] = [
-        "*.md", "*.txt", "*.pdf", "*.docx", "*.doc",
-        "*.py", "*.js", "*.ts", "*.jsx", "*.tsx",
-        "*.html", "*.css", "*.scss", "*.json", "*.yaml", "*.yml",
-        "*.rs", "*.go", "*.java", "*.cpp", "*.c", "*.h",
-        "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.svg"
-    ]
+    # File watching
+    watched_folders_path: str = os.getenv("WATCHED_FOLDERS_PATH", "/app/data/watched_folders.json")
     
-    # Backup
-    backup_enabled: bool = True
-    snapshot_interval_hours: int = 24
-    markdown_export_enabled: bool = True
-    markdown_export_path: str = "./backups/markdown"
-    markdown_export_interval_hours: int = 168  # Weekly
-    git_backup_enabled: bool = False
-    git_repo_path: str = "./backups/git"
-    git_remote_url: Optional[str] = None
-    
-    # Context Builder
-    max_context_tokens: int = 4000  # Leave room for response
-    context_chunk_size: int = 1000
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    # Git settings
+    git_repo_url: str = os.getenv("GIT_REPO_URL", "")
 
 
 # Global settings instance
 settings = Settings()
-
-# Ensure data directories exist
-os.makedirs("./data", exist_ok=True)
-os.makedirs("./backups/markdown", exist_ok=True)
-os.makedirs("./backups/git", exist_ok=True)
