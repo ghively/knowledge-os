@@ -57,6 +57,8 @@ Located in `.github/dependabot.yml`:
 - [x] `backend` (dark blue) - Backend related
 - [x] `qdrant` (red) - Qdrant/Vector DB related
 - [x] `docker` (blue) - Docker/Deployment related
+- [x] `dependencies` (blue) - Dependency updates (for Dependabot)
+- [x] `github-actions` (blue) - GitHub Actions updates (for Dependabot)
 - [x] Default labels (bug, enhancement, etc.)
 
 ### Documentation Files
@@ -287,3 +289,4 @@ Consider adding:
 5. Push and create a PR
 
 The CI will automatically run checks on your PR!
+
