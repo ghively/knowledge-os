@@ -4,7 +4,7 @@ uvicorn[standard]==0.27.0
 websockets==12.0
 python-multipart==0.0.6
 pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic-settings==2.13.1
 qdrant-client==1.7.2
 sentence-transformers==2.2.2
 transformers==4.36.2
