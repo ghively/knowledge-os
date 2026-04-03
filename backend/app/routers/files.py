@@ -1,4 +1,8 @@
 """Files Router - File management and indexing"""
+import uuid
+import logging
+import hashlib
+
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
 from datetime import datetime
@@ -6,16 +10,31 @@ from datetime import datetime
 from app.database.qdrant_client import qdrant_manager
 from app.database.sqlite import sqlite_manager
 from app.services.websocket_manager import websocket_manager, WebSocketEvents
+from app.services.embedding import embedding_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def compute_file_hash(file_path: str) -> str:
+    """Compute SHA-256 hash of a file"""
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()
+    except Exception as e:
+        logger.error(f"Error computing hash for {file_path}: {e}")
+        return ""
 
 
 @router.get("")
 async def list_files():
     """List all indexed files"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    results, _ = client.scroll(
+    results = await client.scroll(
         collection_name="files",
         limit=1000,
         with_payload=True,
@@ -23,7 +42,7 @@ async def list_files():
     )
     
     files = []
-    for result in results:
+    for result in results[0]:
         payload = result.payload
         payload["id"] = result.id
         files.append(payload)
@@ -34,9 +53,9 @@ async def list_files():
 @router.get("/{file_id}")
 async def get_file(file_id: str):
     """Get file details"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    results = client.retrieve(
+    results = await client.retrieve(
         collection_name="files",
         ids=[file_id],
         with_payload=True,
@@ -55,10 +74,10 @@ async def get_file(file_id: str):
 @router.post("/{file_id}/reindex")
 async def reindex_file(file_id: str, background_tasks: BackgroundTasks):
     """Reindex a file"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Get existing file
-    results = client.retrieve(
+    results = await client.retrieve(
         collection_name="files",
         ids=[file_id],
         with_payload=True,
@@ -74,6 +93,8 @@ async def reindex_file(file_id: str, background_tasks: BackgroundTasks):
     # Trigger reindex in background
     background_tasks.add_task(_reindex_file_task, file_id, file_path)
     
+    logger.info(f"Reindexing file: {file_id}")
+    
     return {"message": "Reindexing started", "file_id": file_id}
 
 
@@ -87,8 +108,10 @@ async def _reindex_file_task(file_id: str, file_path: str):
         await websocket_manager.broadcast(
             WebSocketEvents.file_reindexed(file_id, file_path)
         )
+        
+        logger.info(f"File reindexed: {file_id}")
     except Exception as e:
-        print(f"Error reindexing file {file_id}: {e}")
+        logger.error(f"Error reindexing file {file_id}: {e}")
 
 
 @router.post("/notify")
@@ -100,6 +123,8 @@ async def file_notification(data: dict):
     
     if not event_type or not path:
         raise HTTPException(status_code=400, detail="event_type and path are required")
+    
+    logger.info(f"File notification: {event_type} - {path}")
     
     # Process based on event type
     if event_type in ["created", "modified"]:
@@ -120,10 +145,10 @@ async def file_notification(data: dict):
 
 async def _remove_file_from_index(file_path: str):
     """Remove a file from the index"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Find file by path
-    results, _ = client.scroll(
+    results = await client.scroll(
         collection_name="files",
         scroll_filter={
             "must": [{"key": "path", "match": {"value": file_path}}]
@@ -133,19 +158,20 @@ async def _remove_file_from_index(file_path: str):
         with_vectors=False
     )
     
-    if results:
-        client.delete(
+    if results[0]:
+        await client.delete(
             collection_name="files",
-            points_selector=[results[0].id]
+            points_selector=[results[0][0].id]
         )
+        logger.info(f"Removed file from index: {file_path}")
 
 
 async def _update_file_path(old_path: str, new_path: str):
     """Update file path in index"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
     # Find file by old path
-    results, _ = client.scroll(
+    results = await client.scroll(
         collection_name="files",
         scroll_filter={
             "must": [{"key": "path", "match": {"value": old_path}}]
@@ -155,13 +181,57 @@ async def _update_file_path(old_path: str, new_path: str):
         with_vectors=False
     )
     
-    if results:
-        file_id = results[0].id
-        payload = results[0].payload
+    if results[0]:
+        file_id = results[0][0].id
+        payload = results[0][0].payload
         payload["path"] = new_path
         
-        client.set_payload(
+        await client.set_payload(
             collection_name="files",
             payload=payload,
             points=[file_id]
         )
+        
+        logger.info(f"Updated file path: {old_path} -> {new_path}")
+
+
+@router.post("/{file_id}/content")
+async def index_file_content(file_id: str, data: dict):
+    """Index file content"""
+    client = qdrant_manager.get_async_client()
+    
+    file_path = data.get("path")
+    content = data.get("content", "")
+    content_type = data.get("content_type", "text/plain")
+    
+    if not file_path:
+        raise HTTPException(status_code=400, detail="path is required")
+    
+    # Compute SHA-256 hash
+    file_hash = compute_file_hash(file_path) if file_path else ""
+    
+    # Generate embedding
+    embedding = await embedding_service.embed_text(content)
+    
+    # Store in Qdrant
+    await client.upsert(
+        collection_name="files",
+        points=[{
+            "id": file_id,
+            "vector": embedding.tolist(),
+            "payload": {
+                "id": file_id,
+                "path": file_path,
+                "name": file_path.split("/")[-1] if "/" in file_path else file_path,
+                "content_type": content_type,
+                "content_preview": content[:1000] if content else "",
+                "hash": file_hash,
+                "indexed_at": datetime.utcnow().isoformat(),
+                "indexed": True
+            }
+        }]
+    )
+    
+    logger.info(f"Indexed file: {file_id}")
+    
+    return {"message": "File indexed", "file_id": file_id}
