@@ -1,81 +1,99 @@
 """Blocks Router - CRUD operations for blocks"""
-from fastapi import APIRouter, HTTPException
+import uuid
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
 
 from app.database.qdrant_client import qdrant_manager
-from app.models.blocks import Block, BlockCreate, BlockUpdate, BlockBatchUpdate
+from app.models.blocks import Block, BlockCreate, BlockUpdate, BlockListResponse
 from app.services.websocket_manager import websocket_manager, WebSocketEvents
 from app.services.embedding import embedding_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/object/{object_id}")
-async def get_object_blocks(object_id: str):
+async def get_blocks_for_object(
+    object_id: str,
+    limit: int = Query(100, ge=1, le=1000)
+):
     """Get all blocks for an object"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    results = client.scroll(
+    results = await client.scroll(
         collection_name="blocks",
         scroll_filter={
             "must": [{"key": "object_id", "match": {"value": object_id}}]
         },
-        limit=1000,
-        with_payload=True
-    )[0]
+        limit=limit,
+        with_payload=True,
+        with_vectors=False
+    )
     
     blocks = []
-    for result in results:
+    for result in results[0]:
         payload = result.payload
         payload["id"] = result.id
         blocks.append(payload)
     
     # Sort by order
-    blocks.sort(key=lambda b: b.get("order", 0))
+    blocks.sort(key=lambda x: x.get("order", 0))
     
-    return {"blocks": blocks}
+    return BlockListResponse(blocks=blocks)
 
 
 @router.post("")
-async def create_block(block: BlockCreate, object_id: str):
+async def create_block(data: dict):
     """Create a new block"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
+    
+    object_id = data.get("object_id")
+    content = data.get("content", "")
+    block_type = data.get("type", "paragraph")
+    level = data.get("level", 0)
+    properties = data.get("properties", {})
+    parent_id = data.get("parent_id")
+    
+    if not object_id:
+        raise HTTPException(status_code=400, detail="object_id is required")
     
     # Generate ID
-    block_id = str(__import__('uuid').uuid4())
+    block_id = str(uuid.uuid4())
     
-    # Get current max order for this object
-    existing = client.scroll(
+    # Generate embedding
+    embedding = await embedding_service.embed_text(content)
+    
+    # Get next order for this object
+    existing_blocks = await client.scroll(
         collection_name="blocks",
         scroll_filter={
             "must": [{"key": "object_id", "match": {"value": object_id}}]
         },
         limit=1000,
-        with_payload=True
-    )[0]
-    
-    max_order = max([r.payload.get("order", 0) for r in existing] + [-1])
-    
-    # Generate embedding
-    embedding = await embedding_service.embed_text(block.content)
+        with_payload=False,
+        with_vectors=False
+    )
+    next_order = len(existing_blocks[0])
     
     # Build payload
     payload = {
         "id": block_id,
         "object_id": object_id,
-        "content": block.content,
-        "type": block.type or "paragraph",
-        "level": block.level or 0,
-        "properties": block.properties.dict() if block.properties else {},
-        "order": max_order + 1,
-        "parent_id": block.parent_id,
-        "references": [],
-        "referenced_by": []
+        "type": block_type,
+        "content": content,
+        "level": level,
+        "order": next_order,
+        "properties": properties,
+        "parent_id": parent_id,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat()
     }
     
     # Insert into Qdrant
-    client.upsert(
+    await client.upsert(
         collection_name="blocks",
         points=[{
             "id": block_id,
@@ -89,16 +107,18 @@ async def create_block(block: BlockCreate, object_id: str):
         WebSocketEvents.block_created(block_id, object_id)
     )
     
+    logger.info(f"Created block: {block_id} for object: {object_id}")
+    
     return payload
 
 
 @router.put("/{block_id}")
-async def update_block(block_id: str, update: BlockUpdate):
+async def update_block(block_id: str, data: dict):
     """Update a block"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    # Get existing
-    existing = client.retrieve(
+    # Get existing block
+    existing = await client.retrieve(
         collection_name="blocks",
         ids=[block_id],
         with_payload=True,
@@ -109,28 +129,34 @@ async def update_block(block_id: str, update: BlockUpdate):
         raise HTTPException(status_code=404, detail="Block not found")
     
     payload = existing[0].payload
+    content_changed = False
     
     # Update fields
-    if update.content is not None:
-        payload["content"] = update.content
+    if "content" in data:
+        payload["content"] = data["content"]
+        content_changed = True
     
-    if update.type is not None:
-        payload["type"] = update.type
+    if "type" in data:
+        payload["type"] = data["type"]
     
-    if update.level is not None:
-        payload["level"] = update.level
+    if "level" in data:
+        payload["level"] = data["level"]
     
-    if update.properties is not None:
-        payload["properties"] = update.properties.dict()
+    if "properties" in data:
+        payload["properties"] = data["properties"]
     
-    if update.order is not None:
-        payload["order"] = update.order
+    if "order" in data:
+        payload["order"] = data["order"]
+    
+    if "parent_id" in data:
+        payload["parent_id"] = data["parent_id"]
+    
+    payload["updated_at"] = datetime.now().isoformat()
     
     # Regenerate embedding if content changed
-    if update.content is not None:
-        embedding = await embedding_service.embed_text(update.content)
-        
-        client.upsert(
+    if content_changed:
+        embedding = await embedding_service.embed_text(payload["content"])
+        await client.upsert(
             collection_name="blocks",
             points=[{
                 "id": block_id,
@@ -139,7 +165,7 @@ async def update_block(block_id: str, update: BlockUpdate):
             }]
         )
     else:
-        client.set_payload(
+        await client.set_payload(
             collection_name="blocks",
             payload=payload,
             points=[block_id]
@@ -147,58 +173,85 @@ async def update_block(block_id: str, update: BlockUpdate):
     
     # Broadcast event
     await websocket_manager.broadcast(
-        WebSocketEvents.block_updated(block_id, update.content)
+        WebSocketEvents.block_updated(block_id)
     )
     
-    payload["id"] = block_id
+    logger.info(f"Updated block: {block_id}")
+    
     return payload
 
 
 @router.post("/batch-update")
-async def batch_update_blocks(update: BlockBatchUpdate):
-    """Update multiple blocks at once (for reordering)"""
-    client = qdrant_manager.get_client()
+async def batch_update_blocks(data: dict):
+    """Batch update blocks (for reordering)"""
+    client = qdrant_manager.get_async_client()
     
-    for block in update.blocks:
-        client.set_payload(
+    blocks = data.get("blocks", [])
+    
+    for block_data in blocks:
+        block_id = block_data.get("id")
+        if not block_id:
+            continue
+        
+        # Get existing block
+        existing = await client.retrieve(
             collection_name="blocks",
-            payload={
-                "order": block.order,
-                "parent_id": block.parent_id
-            },
-            points=[block.id]
+            ids=[block_id],
+            with_payload=True,
+            with_vectors=False
+        )
+        
+        if not existing:
+            continue
+        
+        payload = existing[0].payload
+        
+        if "order" in block_data:
+            payload["order"] = block_data["order"]
+        
+        if "parent_id" in block_data:
+            payload["parent_id"] = block_data["parent_id"]
+        
+        payload["updated_at"] = datetime.now().isoformat()
+        
+        await client.set_payload(
+            collection_name="blocks",
+            payload=payload,
+            points=[block_id]
         )
     
-    return {"message": "Blocks updated", "count": len(update.blocks)}
+    logger.info(f"Batch updated {len(blocks)} blocks")
+    
+    return {"message": f"Updated {len(blocks)} blocks"}
 
 
 @router.delete("/{block_id}")
 async def delete_block(block_id: str):
     """Delete a block"""
-    client = qdrant_manager.get_client()
+    client = qdrant_manager.get_async_client()
     
-    # Get block info for broadcast
-    existing = client.retrieve(
+    # Check if block exists
+    existing = await client.retrieve(
         collection_name="blocks",
         ids=[block_id],
-        with_payload=True,
+        with_payload=False,
         with_vectors=False
     )
     
     if not existing:
         raise HTTPException(status_code=404, detail="Block not found")
     
-    object_id = existing[0].payload.get("object_id")
-    
-    # Delete
-    client.delete(
+    # Delete from Qdrant
+    await client.delete(
         collection_name="blocks",
         points_selector=[block_id]
     )
     
     # Broadcast event
     await websocket_manager.broadcast(
-        WebSocketEvents.block_updated(block_id)
+        WebSocketEvents.block_deleted(block_id)
     )
     
-    return {"message": "Block deleted", "id": block_id, "object_id": object_id}
+    logger.info(f"Deleted block: {block_id}")
+    
+    return {"message": "Block deleted"}
