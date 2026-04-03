@@ -1,21 +1,134 @@
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Type definitions
+export interface ObjectItem {
+  id: string
+  type: string
+  title: string
+  icon?: string
+  content?: string
+  properties?: Record<string, unknown>
+  layout?: string
+}
+
+export interface BlockItem {
+  id: string
+  object_id: string
+  type: string
+  content: string
+  level: number
+  order: number
+  properties?: Record<string, unknown>
+  parent_id?: string | null
+}
+
+export interface TaskItem extends ObjectItem {
+  properties: {
+    status: 'todo' | 'in-progress' | 'blocked' | 'review' | 'done'
+    priority: 'low' | 'medium' | 'high' | 'urgent'
+    assigned_to?: string
+    due_date?: string
+    [key: string]: unknown
+  }
+}
+
+export interface AgentItem {
+  id: string
+  name: string
+  description?: string
+  status: 'idle' | 'working' | 'error' | 'offline'
+  capabilities?: string[]
+  current_task?: string
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'agent' | 'system'
+  content: string
+  timestamp: string
+  agent_name?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface FileItem {
+  id: string
+  name: string
+  path: string
+  content_type?: string
+  indexed: boolean
+  indexed_at?: string
+  hash?: string
+}
+
+export interface SearchResult {
+  id: string
+  type: string
+  title: string
+  content: string
+  score: number
+  collection: string
+}
+
+export interface WatchedFolder {
+  id: string
+  path: string
+  recursive: boolean
+  file_count: number
+}
+
+export interface AppSettings {
+  openclaw_url: string
+  openclaw_token?: string
+  backup_snapshots: boolean
+  backup_markdown: boolean
+  backup_git: boolean
+  git_repo_url?: string
+  auto_index: boolean
+}
+
+// Error handling
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public statusCode?: number,
+    public response?: unknown
+  ) {
+    super(message)
+    this.name = 'APIError'
+  }
+}
+
+// Axios instance
 export const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000,
 })
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response) {
+      const message = (error.response.data as { detail?: string })?.detail || 'An error occurred'
+      throw new APIError(message, error.response.status, error.response.data)
+    }
+    throw new APIError(error.message || 'Network error')
+  }
+)
 
 // Objects API
 export const objectsApi = {
   list: (params?: { type?: string; limit?: number; offset?: number }) =>
-    api.get('/objects', { params }).then((r) => r.data),
-  
-  get: (id: string) => api.get(`/objects/${id}`).then((r) => r.data),
-  
+    api.get<{ objects: ObjectItem[]; total: number }>('/objects', { params }).then((r) => r.data),
+
+  get: (id: string) =>
+    api.get<ObjectItem>(`/objects/${id}`).then((r) => r.data),
+
   create: (data: {
     type: string
     title: string
@@ -23,136 +136,131 @@ export const objectsApi = {
     content?: string
     properties?: Record<string, unknown>
     layout?: string
-  }) => api.post('/objects', data).then((r) => r.data),
-  
-  update: (id: string, data: Partial<{
-    title: string
-    icon: string
-    content: string
-    properties: Record<string, unknown>
-    layout: string
-  }>) => api.put(`/objects/${id}`, data).then((r) => r.data),
-  
-  delete: (id: string) => api.delete(`/objects/${id}`).then((r) => r.data),
-  
-  getRelations: (id: string) => api.get(`/objects/${id}/relations`).then((r) => r.data),
+  }) => api.post<ObjectItem>('/objects', data).then((r) => r.data),
+
+  update: (id: string, data: Partial<ObjectItem>) =>
+    api.put<ObjectItem>(`/objects/${id}`, data).then((r) => r.data),
+
+  delete: (id: string) =>
+    api.delete(`/objects/${id}`).then((r) => r.data),
+
+  getRelations: (id: string) =>
+    api.get<{ relations: unknown[] }>(`/objects/${id}/relations`).then((r) => r.data),
 }
 
 // Blocks API
 export const blocksApi = {
   getForObject: (objectId: string) =>
-    api.get(`/blocks/object/${objectId}`).then((r) => r.data.blocks),
-  
+    api.get<{ blocks: BlockItem[] }>(`/blocks/object/${objectId}`).then((r) => r.data),
+
   create: (objectId: string, data: {
     content: string
     type?: string
     level?: number
     properties?: Record<string, unknown>
     parent_id?: string | null
-  }) => api.post(`/blocks?object_id=${objectId}`, data).then((r) => r.data),
-  
-  update: (id: string, data: Partial<{
-    content: string
-    type: string
-    level: number
-    properties: Record<string, unknown>
-    order: number
-  }>) => api.put(`/blocks/${id}`, data).then((r) => r.data),
-  
+  }) => api.post<BlockItem>(`/blocks?object_id=${objectId}`, data).then((r) => r.data),
+
+  update: (id: string, data: Partial<BlockItem>) =>
+    api.put<BlockItem>(`/blocks/${id}`, data).then((r) => r.data),
+
   batchUpdate: (blocks: { id: string; order: number; parent_id?: string | null }[]) =>
     api.post('/blocks/batch-update', { blocks }).then((r) => r.data),
-  
-  delete: (id: string) => api.delete(`/blocks/${id}`).then((r) => r.data),
+
+  delete: (id: string) =>
+    api.delete(`/blocks/${id}`).then((r) => r.data),
 }
 
 // Tasks API
 export const tasksApi = {
   list: (params?: { status?: string; priority?: string; assigned_to?: string }) =>
-    api.get('/tasks', { params }).then((r) => r.data),
-  
-  get: (id: string) => api.get(`/tasks/${id}`).then((r) => r.data),
-  
+    api.get<{ tasks: TaskItem[] }>('/tasks', { params }).then((r) => r.data),
+
+  get: (id: string) =>
+    api.get<TaskItem>(`/tasks/${id}`).then((r) => r.data),
+
   assign: (taskId: string, data: {
     agent_name: string
     priority: string
     include_context?: boolean
     additional_context?: string[]
   }) => api.post(`/tasks/${taskId}/assign`, data).then((r) => r.data),
-  
+
   updateStatus: (taskId: string, data: {
     agent_name: string
     status: string
     current_action?: string
     notes?: string
   }) => api.post(`/tasks/${taskId}/status`, data).then((r) => r.data),
-  
-  getContext: (taskId: string) => api.get(`/tasks/${taskId}/context`).then((r) => r.data),
+
+  getContext: (taskId: string) =>
+    api.get<{ context: unknown }>(`/tasks/${taskId}/context`).then((r) => r.data),
 }
 
 // Agents API
 export const agentsApi = {
-  list: () => api.get('/agents').then((r) => r.data.agents),
-  
-  get: (name: string) => api.get(`/agents/${name}`).then((r) => r.data),
-  
+  list: () =>
+    api.get<{ agents: AgentItem[] }>('/agents').then((r) => r.data),
+
+  get: (name: string) =>
+    api.get<AgentItem>(`/agents/${name}`).then((r) => r.data),
+
   getTasks: (name: string, params?: { status?: string }) =>
-    api.get(`/agents/${name}/tasks`, { params }).then((r) => r.data.tasks),
-  
+    api.get<{ tasks: TaskItem[] }>(`/agents/${name}/tasks`, { params }).then((r) => r.data),
+
   chat: (name: string, content: string, sessionId?: string) =>
     api.post(`/agents/${name}/chat`, { content, session_id: sessionId }).then((r) => r.data),
-  
+
   getChatHistory: (name: string, sessionId?: string) =>
-    api.get(`/agents/${name}/chat`, { params: { session_id: sessionId } }).then((r) => r.data.messages),
-  
+    api.get<{ messages: ChatMessage[] }>(`/agents/${name}/chat`, { params: { session_id: sessionId } }).then((r) => r.data),
+
   getMemories: (name: string, query?: string) =>
-    api.get(`/agents/${name}/memories`, { params: { query } }).then((r) => r.data.memories),
+    api.get<{ memories: unknown[] }>(`/agents/${name}/memories`, { params: { query } }).then((r) => r.data),
 }
 
 // Search API
 export const searchApi = {
   search: (query: string, type: 'semantic' | 'exact' = 'semantic', params?: { collection?: string; limit?: number }) =>
-    api.get('/search', { params: { q: query, type, ...params } }).then((r) => r.data.results),
-  
+    api.get<{ results: SearchResult[] }>('/search', { params: { q: query, type, ...params } }).then((r) => r.data),
+
   findSimilar: (objectId: string, params?: { collection?: string; limit?: number }) =>
-    api.get(`/search/similar/${objectId}`, { params }).then((r) => r.data),
+    api.get<{ results: SearchResult[] }>(`/search/similar/${objectId}`, { params }).then((r) => r.data),
 }
 
 // Files API
 export const filesApi = {
-  list: () => api.get('/files').then((r) => r.data.files),
-  
-  get: (id: string) => api.get(`/files/${id}`).then((r) => r.data),
-  
-  reindex: (id: string) => api.post(`/files/${id}/reindex`).then((r) => r.data),
+  list: () =>
+    api.get<{ files: FileItem[] }>('/files').then((r) => r.data),
+
+  get: (id: string) =>
+    api.get<FileItem>(`/files/${id}`).then((r) => r.data),
+
+  reindex: (id: string) =>
+    api.post(`/files/${id}/reindex`).then((r) => r.data),
 }
 
 // Settings API
 export const settingsApi = {
-  get: () => api.get('/settings').then((r) => r.data),
-  
-  update: (data: {
-    openclaw_url?: string
-    openclaw_token?: string
-    backup_snapshots?: boolean
-    backup_markdown?: boolean
-    backup_git?: boolean
-    git_repo_url?: string
-    auto_index?: boolean
-  }) => api.put('/settings', data).then((r) => r.data),
-  
-  getWatchedFolders: () => api.get('/settings/watched-folders').then((r) => r.data.folders),
-  
+  get: () =>
+    api.get<AppSettings>('/settings').then((r) => r.data),
+
+  update: (data: Partial<AppSettings>) =>
+    api.put<AppSettings>('/settings', data).then((r) => r.data),
+
+  getWatchedFolders: () =>
+    api.get<{ folders: WatchedFolder[] }>('/settings/watched-folders').then((r) => r.data),
+
   addWatchedFolder: (path: string, recursive: boolean = true, includePatterns?: string[], excludePatterns?: string[]) =>
-    api.post('/settings/watched-folders', {
+    api.post<WatchedFolder>('/settings/watched-folders', {
       path,
       recursive,
       include_patterns: includePatterns,
       exclude_patterns: excludePatterns,
     }).then((r) => r.data),
-  
+
   removeWatchedFolder: (id: string) =>
     api.delete(`/settings/watched-folders/${id}`).then((r) => r.data),
-  
+
   triggerBackup: (type: 'snapshot' | 'markdown' | 'git') =>
     api.post('/settings/backup', { type }).then((r) => r.data),
 }
@@ -165,11 +273,12 @@ export const relationsApi = {
     relation_type: string
     metadata?: Record<string, unknown>
   }) => api.post('/relations', data).then((r) => r.data),
-  
-  delete: (id: string) => api.delete(`/relations/${id}`).then((r) => r.data),
-  
+
+  delete: (id: string) =>
+    api.delete(`/relations/${id}`).then((r) => r.data),
+
   getForObject: (objectId: string) =>
-    api.get(`/relations/object/${objectId}`).then((r) => r.data.relations),
+    api.get<{ relations: unknown[] }>(`/relations/object/${objectId}`).then((r) => r.data),
 }
 
 // WebSocket API (for reference - actual WebSocket handled by useWebSocket hook)
