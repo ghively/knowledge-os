@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Qdrant Vector Database
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.13.0
     container_name: knowledge-os-qdrant
     ports:
       - "6333:6333"
@@ -109,3 +109,4 @@ volumes:
 networks:
   knowledge-os-network:
     driver: bridge
+
