@@ -80,6 +80,26 @@ class WebSocketEvents:
     def file_reindexed(file_id: str, path: str):
         return {"type": "file.indexed", "channel": "files", "data": {"id": file_id, "path": path, "reindexed": True}}
 
+    @staticmethod
+    def collab_user_joined(object_id: str, user_id: str, display_name: str, color: str):
+        return {"type": "collab.user_joined", "channel": f"collab:{object_id}", "data": {"object_id": object_id, "user_id": user_id, "display_name": display_name, "color": color}}
+
+    @staticmethod
+    def collab_user_left(object_id: str, user_id: str):
+        return {"type": "collab.user_left", "channel": f"collab:{object_id}", "data": {"object_id": object_id, "user_id": user_id}}
+
+    @staticmethod
+    def user_joined(object_id: str, user_id: str, user_name: str):
+        return {"type": "user.joined", "channel": f"object:{object_id}", "data": {"object_id": object_id, "user_id": user_id, "user_name": user_name}}
+
+    @staticmethod
+    def user_left(object_id: str, user_id: str, user_name: str):
+        return {"type": "user.left", "channel": f"object:{object_id}", "data": {"object_id": object_id, "user_id": user_id, "user_name": user_name}}
+
+    @staticmethod
+    def presence_update(object_id: str, users: list):
+        return {"type": "presence.update", "channel": f"object:{object_id}", "data": {"object_id": object_id, "users": users}}
+
 
 class WebSocketManager:
     """Manages WebSocket connections and channel subscriptions."""

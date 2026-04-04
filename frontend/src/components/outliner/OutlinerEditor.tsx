@@ -14,6 +14,10 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { useCollaborativeCursors, broadcastSelection } from '@/components/collaboration/CollaborativeCursors'
+import { useCollaborationStore } from '@/stores/collaboration'
+import { PresenceIndicator } from '@/components/collaboration/PresenceIndicator'
+import type { CursorDecoration } from '@/components/collaboration/CollaborativeCursors'
 
 type BlockType = 'paragraph' | 'heading' | 'todo' | 'bullet' | 'numbered' | 'quote' | 'code'
 
@@ -31,6 +35,7 @@ interface OutlinerEditorProps {
   initialBlocks?: BlockElement[]
   onChange?: (blocks: BlockElement[]) => void
   readOnly?: boolean
+  enableCollaboration?: boolean
 }
 
 type CustomElement = {
@@ -123,35 +128,75 @@ const renderElement = (props: { attributes: React.HTMLAttributes<HTMLElement>; c
   }
 }
 
-const renderLeaf = (
-  props: RenderLeafProps & { leaf: CustomText },
-  onLinkClick?: (type: 'wiki' | 'block', value: string) => void
+/**
+ * Custom leaf renderer that handles text formatting.
+ * Collaborative cursor overlays are rendered via the decorate system.
+ */
+const renderLeafFactory = (
+  onLinkClick?: (type: 'wiki' | 'block', value: string) => void,
 ) => {
-  let { children } = props
+  return (props: RenderLeafProps) => {
+    let { children } = props
+    const leaf = props.leaf as CustomText
 
-  if (props.leaf.bold) children = <strong>{children}</strong>
-  if (props.leaf.italic) children = <em>{children}</em>
-  if (props.leaf.code) children = <code className="rounded bg-muted px-1">{children}</code>
-  if (props.leaf.linkType && props.leaf.linkValue) {
-    children = (
-      <button
-        type="button"
-        className={cn(
-          'rounded px-1 underline decoration-dotted underline-offset-4',
-          props.leaf.linkType === 'wiki' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
-        )}
-        contentEditable={false}
-        onMouseDown={(event) => {
-          event.preventDefault()
-          onLinkClick?.(props.leaf.linkType!, props.leaf.linkValue!)
-        }}
-      >
-        {children}
-      </button>
-    )
+    // Text formatting
+    if (leaf.bold) children = <strong>{children}</strong>
+    if (leaf.italic) children = <em>{children}</em>
+    if (leaf.code) children = <code className="rounded bg-muted px-1">{children}</code>
+
+    // Wiki/block links
+    if (leaf.linkType && leaf.linkValue) {
+      children = (
+        <button
+          type="button"
+          className={cn(
+            'rounded px-1 underline decoration-dotted underline-offset-4',
+            leaf.linkType === 'wiki' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
+          )}
+          contentEditable={false}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            onLinkClick?.(leaf.linkType!, leaf.linkValue!)
+          }}
+        >
+          {children}
+        </button>
+      )
+    }
+
+    // Collaborative selection highlight
+    const cursorDec = (leaf as Record<string, unknown>).__collabCursor as CursorDecoration | undefined
+    if (cursorDec) {
+      return (
+        <span {...props.attributes} className="relative">
+          <span
+            className="absolute inset-0 pointer-events-none rounded-sm"
+            style={{ backgroundColor: cursorDec.color + '20' }}
+          />
+          <span
+            className="absolute pointer-events-none"
+            style={{
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: '2px',
+              backgroundColor: cursorDec.color,
+            }}
+          >
+            <span
+              className="absolute left-0 -top-5 px-1 py-0.5 text-[10px] text-white whitespace-nowrap rounded-sm"
+              style={{ backgroundColor: cursorDec.color }}
+            >
+              {cursorDec.userName}
+            </span>
+          </span>
+          {children}
+        </span>
+      )
+    }
+
+    return <span {...props.attributes}>{children}</span>
   }
-
-  return <span {...props.attributes}>{children}</span>
 }
 
 const Toolbar = ({ editor }: { editor: Editor }) => {
@@ -200,6 +245,7 @@ export function OutlinerEditor({
   initialBlocks = [],
   onChange,
   readOnly = false,
+  enableCollaboration = false,
 }: OutlinerEditorProps) {
   const navigate = useNavigate()
   const editor = useMemo(() => withHistory(withReact(createEditor())), [])
@@ -216,6 +262,11 @@ export function OutlinerEditor({
       children: block.children,
     }))
   })
+
+  // Collaboration hooks
+  const sendCursor = useCollaborationStore((s) => s.sendCursor)
+  const collabStatus = useCollaborationStore((s) => s.status)
+  const { decorate: collabDecorate } = useCollaborativeCursors(editor, enableCollaboration ? objectId : undefined)
 
   useEffect(() => {
     if (initialBlocks.length === 0) {
@@ -239,7 +290,8 @@ export function OutlinerEditor({
     navigate(`/search?q=${encodeURIComponent(linkValue)}`)
   }, [navigate, objectId])
 
-  const decorate = useCallback(([node, path]: NodeEntry<Node>) => {
+  // Base decorations (wiki links, block refs)
+  const baseDecorate = useCallback(([node, path]: NodeEntry<Node>) => {
     const ranges: DecoratedRange[] = []
     if (!Text.isText(node)) {
       return ranges
@@ -266,6 +318,19 @@ export function OutlinerEditor({
 
     return ranges
   }, [])
+
+  // Combined decorate: base + collaboration cursors
+  const decorate = useCallback(
+    (entry: NodeEntry<Node>) => {
+      const base = baseDecorate(entry)
+      if (enableCollaboration) {
+        const collab = collabDecorate(entry)
+        return [...base, ...collab]
+      }
+      return base
+    },
+    [baseDecorate, collabDecorate, enableCollaboration],
+  )
 
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (readOnly) return
@@ -355,6 +420,11 @@ export function OutlinerEditor({
   const handleChange = useCallback((newValue: Descendant[]) => {
     setValue(newValue)
 
+    // Broadcast cursor to collaborators
+    if (enableCollaboration) {
+      broadcastSelection(editor, editor.selection, sendCursor)
+    }
+
     const blocks = newValue.map((node) => ({
       id: (node as CustomElement).id || createBlockId(),
       type: (node as CustomElement).type,
@@ -365,25 +435,38 @@ export function OutlinerEditor({
     })) as BlockElement[]
 
     onChange?.(blocks)
-  }, [onChange])
+  }, [onChange, enableCollaboration, editor, sendCursor])
 
   const addBlock = useCallback(() => {
     if (readOnly) return
-    void objectId
 
     const lastBlock = value[value.length - 1] as CustomElement
     const newBlock = createEmptyBlock('paragraph', lastBlock?.level || 0)
     Transforms.insertNodes(editor, newBlock as Descendant, { at: [value.length] })
-  }, [editor, objectId, readOnly, value.length])
+  }, [editor, readOnly, value.length])
+
+  // Leaf renderer with collaboration support
+  const renderLeaf = useMemo(
+    () => renderLeafFactory(handleLinkClick),
+    [handleLinkClick],
+  )
 
   return (
-    <div className="outliner-editor">
+    <div className="outliner-editor relative">
       {!readOnly && <Toolbar editor={editor} />}
+
+      {/* Presence indicator — shows active collaborators */}
+      {enableCollaboration && (
+        <div className="flex justify-end mb-2">
+          <PresenceIndicator />
+        </div>
+      )}
+
       <div className="py-4">
         <Slate editor={editor} initialValue={value} onChange={handleChange}>
           <Editable
             renderElement={renderElement}
-            renderLeaf={(props) => renderLeaf(props, handleLinkClick)}
+            renderLeaf={renderLeaf}
             decorate={decorate}
             onKeyDown={onKeyDown}
             placeholder="Type something... Use /todo, /heading, [[Wiki Links]], or ((block-id))"

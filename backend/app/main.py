@@ -12,9 +12,10 @@ from app.services.embedding import embedding_service
 from app.services.backup import backup_service
 from app.services.file_watcher import file_watcher_service
 from app.services.websocket_manager import websocket_manager
+from app.services.collaboration import collaboration_manager
 
 # Import routers
-from app.routers import objects, blocks, tasks, search, agents, files, relations, settings as settings_router, auth as auth_router
+from app.routers import objects, blocks, tasks, search, agents, files, relations, settings as settings_router, auth as auth_router, collaboration
 
 # Configure logging
 logging.basicConfig(
@@ -47,7 +48,10 @@ async def lifespan(app: FastAPI):
     
     logger.info("📦 Initializing file watcher service...")
     await file_watcher_service.start()
-    
+
+    logger.info("📦 Initializing collaboration service...")
+    await collaboration_manager.start()
+
     logger.info("✅ Knowledge OS Backend started successfully!")
     
     yield
@@ -57,6 +61,7 @@ async def lifespan(app: FastAPI):
     
     await file_watcher_service.stop()
     await backup_service.stop()
+    await collaboration_manager.stop()
     await embedding_service.close()
     await sqlite_manager.close()
     await qdrant_manager.close()
@@ -91,6 +96,7 @@ app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(relations.router, prefix="/api/relations", tags=["Relations"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(collaboration.router, prefix="/api/collaboration", tags=["Collaboration"])
 
 
 @app.get("/health")
@@ -127,6 +133,9 @@ async def websocket_endpoint(websocket: WebSocket, agent_name: str = "system"):
     except Exception:
         websocket_manager.disconnect(websocket)
         raise
+
+
+# Note: Collaboration WebSocket is handled by the collaboration router at /api/collaboration/ws/{object_id}
 
 
 if __name__ == "__main__":

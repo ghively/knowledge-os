@@ -1,18 +1,20 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { 
-  Plus, 
-  MoreHorizontal, 
-  ChevronLeft, 
-  Share, 
+import {
+  Plus,
+  MoreHorizontal,
+  ChevronLeft,
+  Share,
   Calendar,
   Tag,
-  User
+  User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { OutlinerEditor, type BlockElement } from '@/components/outliner/OutlinerEditor'
 import { objectsApi, blocksApi, type BlockItem } from '@/services/api'
+import { useCollaborationStore } from '@/stores/collaboration'
+import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
 
 interface ObjectData {
@@ -42,6 +44,10 @@ export function OutlinerPage() {
   const [pendingBlocks, setPendingBlocks] = useState<BlockElement[] | null>(null)
   const hasLoadedBlocksRef = useRef(false)
 
+  // Collaboration and auth
+  const { user } = useAuthStore()
+  const { connect: connectCollaboration, disconnect: disconnectCollaboration } = useCollaborationStore()
+
   // Fetch object data
   const { data: objectData, isLoading: objectLoading } = useQuery({
     queryKey: ['object', id],
@@ -67,6 +73,23 @@ export function OutlinerPage() {
       hasLoadedBlocksRef.current = true
     }
   }, [blocks, id])
+
+  // Connect to collaboration when viewing a document
+  useEffect(() => {
+    if (!id || !user) return
+
+    // Connect to collaboration room
+    connectCollaboration(
+      id,
+      user.id,
+      user.display_name || user.username,
+    )
+
+    // Disconnect on unmount
+    return () => {
+      disconnectCollaboration()
+    }
+  }, [id, user, connectCollaboration, disconnectCollaboration])
 
   // Create object mutation
   const createObjectMutation = useMutation({
@@ -251,6 +274,7 @@ export function OutlinerPage() {
         objectId={id}
         initialBlocks={editorBlocks}
         onChange={handleBlocksChange}
+        enableCollaboration={!!id && !!user}
       />
 
       {/* Properties Panel */}
