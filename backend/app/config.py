@@ -61,6 +61,12 @@ class Settings:
     # Git settings
     git_repo_url: str = os.getenv("GIT_REPO_URL", "")
 
+    # JWT/Authentication settings
+    secret_key: str = os.getenv("JWT_SECRET_KEY", "")
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
+    refresh_token_expire_days: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))  # 7 days
+    reset_token_expire_hours: int = int(os.getenv("RESET_TOKEN_EXPIRE_HOURS", "1"))  # 1 hour
+
 
 # Global settings instance
 settings = Settings()
