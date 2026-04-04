@@ -1,24 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckSquare, Plus, Filter, MoreHorizontal, User } from 'lucide-react'
+import { CheckSquare, Plus, MoreHorizontal, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TaskAssignmentDialog } from '@/components/tasks/TaskAssignmentDialog'
-import { tasksApi, objectsApi } from '@/services/api'
+import { tasksApi, objectsApi, type TaskItem } from '@/services/api'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
-
-interface Task {
-  id: string
-  title: string
-  type: string
-  properties: {
-    status: 'todo' | 'in-progress' | 'blocked' | 'review' | 'done'
-    priority: 'low' | 'medium' | 'high' | 'urgent'
-    assigned_to?: string
-    due_date?: string
-    current_action?: string
-  }
-}
 
 const priorityColors = {
   urgent: 'border-l-red-500 bg-red-50/50',
@@ -53,17 +40,23 @@ const statusColors: Record<string, string> = {
 export function TasksPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [filter, setFilter] = useState<'all' | 'todo' | 'in-progress' | 'done'>('all')
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'todo' | 'in-progress' | 'blocked' | 'review' | 'done'>('all')
+  const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all')
+  const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null)
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false)
 
   // Fetch tasks (objects with type='task')
   const { data: tasksData, isLoading } = useQuery({
-    queryKey: ['tasks', { filter }],
-    queryFn: () => tasksApi.list({ status: filter === 'all' ? undefined : filter }),
+    queryKey: ['tasks', { statusFilter, priorityFilter }],
+    queryFn: () => tasksApi.list({
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      priority: priorityFilter === 'all' ? undefined : priorityFilter,
+    }),
   })
 
-  const tasks: Task[] = tasksData?.tasks || []
+  const tasks: TaskItem[] = tasksData?.tasks || []
+  const byStatus = tasksData?.by_status || {}
+  const byPriority = tasksData?.by_priority || {}
 
   // Create task mutation
   const createTaskMutation = useMutation({
@@ -86,12 +79,27 @@ export function TasksPage() {
     })
   }
 
-  const handleAssignClick = (task: Task) => {
+  const handleAssignClick = (task: TaskItem) => {
     setSelectedTask(task)
     setAssignmentDialogOpen(true)
   }
 
-  const filteredTasks = tasks
+  const statusOptions = useMemo(() => ([
+    ['all', tasks.length],
+    ['todo', byStatus.todo || 0],
+    ['in-progress', byStatus['in-progress'] || 0],
+    ['blocked', byStatus.blocked || 0],
+    ['review', byStatus.review || 0],
+    ['done', byStatus.done || 0],
+  ] as const), [byStatus, tasks.length])
+
+  const priorityOptions = useMemo(() => ([
+    ['all', tasks.length],
+    ['urgent', byPriority.urgent || 0],
+    ['high', byPriority.high || 0],
+    ['medium', byPriority.medium || 0],
+    ['low', byPriority.low || 0],
+  ] as const), [byPriority, tasks.length])
 
   if (isLoading) {
     return (
@@ -119,7 +127,7 @@ export function TasksPage() {
             Tasks
           </h1>
           <p className="text-muted-foreground mt-1">
-            {tasks.length} tasks • {tasks.filter((t) => t.properties?.status === 'done').length} completed
+            {tasks.length} tasks • {byStatus.done || 0} completed
           </p>
         </div>
         <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending}>
@@ -129,47 +137,43 @@ export function TasksPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 mb-6">
-        <Button
-          variant={filter === 'all' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setFilter('all')}
-        >
-          All
-        </Button>
-        <Button
-          variant={filter === 'todo' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setFilter('todo')}
-        >
-          To Do
-        </Button>
-        <Button
-          variant={filter === 'in-progress' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setFilter('in-progress')}
-        >
-          In Progress
-        </Button>
-        <Button
-          variant={filter === 'done' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setFilter('done')}
-        >
-          Done
-        </Button>
+      <div className="space-y-3 mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {statusOptions.map(([value, count]) => (
+            <Button
+              key={value}
+              variant={statusFilter === value ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter(value)}
+            >
+              {statusLabels[value] || 'All'} ({count})
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {priorityOptions.map(([value, count]) => (
+            <Button
+              key={value}
+              variant={priorityFilter === value ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setPriorityFilter(value)}
+            >
+              {value === 'all' ? 'All Priorities' : value} ({count})
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Task List */}
       <div className="space-y-2">
-        {filteredTasks.length === 0 ? (
+        {tasks.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <CheckSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>No tasks found</p>
             <p className="text-sm">Create your first task to get started</p>
           </div>
         ) : (
-          filteredTasks.map((task) => (
+          tasks.map((task) => (
             <div
               key={task.id}
               className={cn(
@@ -197,20 +201,20 @@ export function TasksPage() {
                       {statusLabels[task.properties?.status || 'todo']}
                     </span>
                     
-                    {task.properties?.assigned_to && (
+                    {typeof task.properties?.assigned_to === 'string' && task.properties.assigned_to.length > 0 && (
                       <span className="flex items-center gap-1 text-muted-foreground">
                         <User className="h-3 w-3" />
-                        @{task.properties.assigned_to}
+                        @{String(task.properties.assigned_to)}
                       </span>
                     )}
                     
-                    {task.properties?.current_action && (
+                    {typeof task.properties?.current_action === 'string' && task.properties.current_action.length > 0 && (
                       <span className="text-blue-600">
-                        ⏳ {task.properties.current_action}
+                        ⏳ {String(task.properties.current_action)}
                       </span>
                     )}
                     
-                    {task.properties?.due_date && (
+                    {typeof task.properties?.due_date === 'string' && task.properties.due_date.length > 0 && (
                       <span className="text-muted-foreground">
                         Due {new Date(task.properties.due_date).toLocaleDateString()}
                       </span>
