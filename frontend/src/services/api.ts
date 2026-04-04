@@ -120,6 +120,46 @@ export interface AppSettings {
   auto_index: boolean
 }
 
+// Auth types
+export interface User {
+  id: string
+  email: string
+  username: string
+  display_name?: string
+  is_active: boolean
+  created_at: string
+  updated_at?: string
+}
+
+export interface AuthTokens {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  expires_in: number
+  user: User
+}
+
+export interface RegisterData {
+  email: string
+  username: string
+  display_name?: string
+  password: string
+}
+
+export interface LoginData {
+  email: string
+  password: string
+}
+
+export interface PasswordResetData {
+  email: string
+}
+
+export interface PasswordResetConfirmData {
+  token: string
+  new_password: string
+}
+
 // Error handling
 export class APIError extends Error {
   constructor(
@@ -141,10 +181,65 @@ export const api = axios.create({
   timeout: 30000,
 })
 
-// Response interceptor for error handling
+// Request interceptor to add auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Response interceptor for error handling and token refresh
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    const originalRequest = error.config as AxiosError & { _retry?: boolean }
+
+    // If 401 and not already tried to refresh
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+
+      try {
+        const refreshToken = localStorage.getItem('refresh_token')
+        if (!refreshToken) {
+          // No refresh token, redirect to login
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          window.location.href = '/login'
+          return Promise.reject(error)
+        }
+
+        // Try to refresh token
+        const response = await axios.post<AuthTokens>(
+          `${API_BASE_URL}/api/auth/refresh`,
+          { refresh_token: refreshToken },
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+
+        const { access_token, refresh_token } = response.data
+
+        // Store new tokens
+        localStorage.setItem('access_token', access_token)
+        if (refresh_token) {
+          localStorage.setItem('refresh_token', refresh_token)
+        }
+
+        // Retry original request
+        originalRequest.headers.Authorization = `Bearer ${access_token}`
+        return api(originalRequest)
+      } catch (refreshError) {
+        // Refresh failed, clear tokens and redirect to login
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        window.location.href = '/login'
+        return Promise.reject(refreshError)
+      }
+    }
+
     if (error.response) {
       const message = (error.response.data as { detail?: string })?.detail || 'An error occurred'
       throw new APIError(message, error.response.status, error.response.data)
@@ -325,6 +420,30 @@ export const relationsApi = {
 
   getForObject: (objectId: string) =>
     api.get<{ relations: RelationItem[] }>(`/relations/object/${objectId}`).then((r) => r.data),
+}
+
+// Auth API
+export const authApi = {
+  register: (data: RegisterData) =>
+    api.post<AuthTokens>('/auth/register', data).then((r) => r.data),
+
+  login: (email: string, password: string) =>
+    api.post<AuthTokens>('/auth/login', { email, password }).then((r) => r.data),
+
+  logout: (refreshToken: string) =>
+    api.post('/auth/logout', { refresh_token: refreshToken }).then((r) => r.data),
+
+  refreshToken: (refreshToken: string) =>
+    api.post<AuthTokens>('/auth/refresh', { refresh_token: refreshToken }).then((r) => r.data),
+
+  getMe: () =>
+    api.get<User>('/auth/me').then((r) => r.data),
+
+  requestPasswordReset: (email: string) =>
+    api.post<{ message: string; _dev_token?: string }>('/auth/password-reset', { email }).then((r) => r.data),
+
+  confirmPasswordReset: (token: string, newPassword: string) =>
+    api.post<{ message: string }>('/auth/password-reset/confirm', { token, new_password: newPassword }).then((r) => r.data),
 }
 
 // WebSocket API (for reference - actual WebSocket handled by useWebSocket hook)
