@@ -63,18 +63,17 @@ class TestWebSocketManager:
     async def test_send_message_to_client(self):
         """Test sending message to specific client."""
         mock_websocket = AsyncMock()
-        client_id = "test-client-1"
 
         # Create simple manager
-        from app.services.websocket_manager import manager
-        await manager.connect(mock_websocket, client_id, "system")
+        from app.services.websocket_manager import websocket_manager as manager
+        await manager.connect(mock_websocket)
 
         message = {"type": "test", "data": "hello"}
 
         # Send message (implementation specific)
-        await manager.broadcast(message, "system")
+        await manager.broadcast(message)
 
-        await manager.disconnect(client_id)
+        manager.disconnect(mock_websocket)
 
     async def test_handle_incoming_message(self, mock_websocket_manager):
         """Test handling incoming WebSocket message."""

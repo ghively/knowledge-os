@@ -48,9 +48,9 @@ describe('formatDate', () => {
     expect(formatted).toBeTruthy()
   })
 
-  it('should handle timestamp input', () => {
-    const timestamp = new Date('2024-01-15').getTime()
-    const formatted = formatDate(timestamp)
+  it('should handle Date input', () => {
+    const date = new Date('2024-01-15')
+    const formatted = formatDate(date)
     expect(formatted).toBeTruthy()
   })
 

@@ -131,24 +131,19 @@ class TestAgentsRouter:
         data = response.json()
         assert "tasks" in data
 
-    async def test_get_agent_memories(self, test_client):
-        """Test getting agent memories."""
-        response = await test_client.get(
-            "/api/agents/test-agent/memories",
-            params={"query": "test query"}
-        )
-
+    async def test_get_agent_tasks(self, test_client):
+        """Test getting tasks for an agent."""
+        response = await test_client.get("/api/agents/coder/tasks")
         assert response.status_code == 200
         data = response.json()
-        assert "memories" in data
+        assert "tasks" in data
 
-    async def test_get_agent_memories_empty_query(self, test_client):
-        """Test getting all memories without query filter."""
-        response = await test_client.get("/api/agents/test-agent/memories")
-
+    async def test_get_agent_tasks_with_status(self, test_client):
+        """Test getting tasks for an agent filtered by status."""
+        response = await test_client.get("/api/agents/coder/tasks", params={"status": "todo"})
         assert response.status_code == 200
         data = response.json()
-        assert "memories" in data
+        assert "tasks" in data
 
 
 @pytest.mark.asyncio

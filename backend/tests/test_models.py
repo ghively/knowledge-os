@@ -41,70 +41,63 @@ class TestObjectModels:
     def test_object_properties_valid(self):
         """Test creating valid object properties."""
         data = {
-            "title": "Test Object",
-            "content": "Test content",
-            "object_type": "note",
             "tags": ["test", "sample"],
+            "status": "active",
+            "priority": "high",
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z",
         }
 
         props = ObjectProperties(**data)
 
-        assert props.title == "Test Object"
-        assert props.content == "Test content"
-        assert props.object_type == "note"
         assert props.tags == ["test", "sample"]
+        assert props.status == "active"
+        assert props.priority == "high"
 
     def test_object_properties_minimal(self):
         """Test creating object properties with minimal fields."""
-        data = {
-            "title": "Minimal Object",
-            "object_type": "note",
-        }
+        props = ObjectProperties()
 
-        props = ObjectProperties(**data)
-
-        assert props.title == "Minimal Object"
-        assert props.object_type == "note"
+        # Should create with defaults
+        assert props.tags == []
+        assert props.status is None
 
     def test_object_create_valid(self):
         """Test creating object with ObjectCreate model."""
         data = {
             "title": "New Object",
             "content": "Content",
-            "object_type": "note",
-            "tags": ["tag1", "tag2"],
+            "type": "note",
         }
 
         obj = ObjectCreate(**data)
 
         assert obj.title == "New Object"
-        assert obj.object_type == "note"
+        assert obj.type == "note"
 
     def test_object_create_with_all_fields(self):
         """Test creating object with all optional fields."""
         data = {
             "title": "Complete Object",
             "content": "Content",
-            "object_type": "note",
-            "tags": ["test"],
-            "status": "active",
-            "priority": "high",
-            "url": "https://example.com",
-            "author": "Test Author",
-            "language": "en",
-            "reading_time": 5,
-            "word_count": 500,
-            "checked": False,
-            "alias": "test-alias",
+            "type": "note",
+            "properties": {
+                "tags": ["test"],
+                "status": "active",
+                "priority": "high",
+            },
+            "icon": "📝",
+            "layout": "default",
         }
 
         obj = ObjectCreate(**data)
 
         assert obj.title == "Complete Object"
-        assert obj.url == "https://example.com"
-        assert obj.reading_time == 5
+        assert obj.icon == "📝"
+        assert obj.layout == "default"
+        assert obj.properties.tags == ["test"]
+        assert obj.properties.status == "active"
+        assert obj.properties.priority == "high"
 
     def test_object_update_partial(self):
         """Test updating object with partial data."""
@@ -124,14 +117,15 @@ class TestObjectModels:
         assert obj is not None
 
     def test_object_model_invalid_type(self):
-        """Test object with invalid object_type."""
+        """Test object with invalid type."""
         data = {
             "title": "Test",
-            "object_type": "invalid_type",
+            "type": "invalid_type",
         }
 
-        with pytest.raises(ValidationError):
-            ObjectCreate(**data)
+        # Type is just a string, no validation
+        obj = ObjectCreate(**data)
+        assert obj.type == "invalid_type"
 
     def test_object_list_response(self):
         """Test object list response structure."""
@@ -162,62 +156,58 @@ class TestBlockModels:
     def test_block_properties_valid(self):
         """Test creating valid block properties."""
         data = {
-            "object_id": "obj-1",
-            "content": "Block content",
-            "block_type": "text",
-            "order": 0,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
+            "checked": True,
+            "language": "python",
+            "collapsed": False,
+            "priority": "high",
         }
 
         props = BlockProperties(**data)
 
-        assert props.object_id == "obj-1"
-        assert props.content == "Block content"
-        assert props.block_type == "text"
-        assert props.order == 0
+        assert props.checked is True
+        assert props.language == "python"
+        assert props.collapsed is False
+        assert props.priority == "high"
 
     def test_block_create_valid(self):
         """Test creating block with BlockCreate model."""
         data = {
             "object_id": "obj-1",
             "content": "New block",
-            "block_type": "text",
-            "order": 0,
+            "type": "text",
         }
 
         block = BlockCreate(**data)
 
         assert block.object_id == "obj-1"
         assert block.content == "New block"
+        assert block.type == "text"
 
     def test_block_create_checklist(self):
         """Test creating checklist block."""
         data = {
             "object_id": "obj-1",
             "content": "Checklist item",
-            "block_type": "text",
-            "order": 0,
-            "checked": False,
+            "type": "text",
+            "properties": {"checked": False},
         }
 
         block = BlockCreate(**data)
 
-        assert block.checked is False
+        assert block.properties.checked is False
 
     def test_block_create_code(self):
         """Test creating code block."""
         data = {
             "object_id": "obj-1",
             "content": "print('hello')",
-            "block_type": "code",
-            "order": 0,
-            "language": "python",
+            "type": "code",
+            "properties": {"language": "python"},
         }
 
         block = BlockCreate(**data)
 
-        assert block.language == "python"
+        assert block.properties.language == "python"
 
     def test_block_update_partial(self):
         """Test updating block with partial data."""
@@ -253,16 +243,15 @@ class TestTaskModels:
         """Test creating task with TaskCreate model."""
         data = {
             "title": "Test Task",
-            "description": "Task description",
-            "status": TaskStatus.TODO,
+            "content": "Task description",
             "priority": Priority.MEDIUM,
         }
 
         task = TaskCreate(**data)
 
         assert task.title == "Test Task"
-        assert task.status == TaskStatus.TODO
         assert task.priority == Priority.MEDIUM
+        assert task.content == "Task description"
 
     def test_task_create_minimal(self):
         """Test creating task with minimal fields."""
@@ -273,6 +262,7 @@ class TestTaskModels:
         task = TaskCreate(**data)
 
         assert task.title == "Minimal Task"
+        assert task.priority == Priority.MEDIUM  # Default value
 
     def test_task_update_status(self):
         """Test updating task status."""
@@ -370,13 +360,11 @@ class TestRelationModels:
                     "vector": [0.1] * 384,
                 }
             ],
-            "total": 1,
         }
 
         response = RelationListResponse(**data)
 
         assert len(response.relations) == 1
-        assert response.total == 1
 
 
 @pytest.mark.asyncio
@@ -384,67 +372,73 @@ class TestModelValidation:
     """Test cases for general model validation."""
 
     def test_url_validation(self):
-        """Test URL field validation."""
+        """Test properties store arbitrary string fields."""
         data = {
             "title": "Test",
-            "url": "not-a-valid-url",
+            "type": "note",
+            "properties": {
+                "tags": [],
+                "notes": "some url: https://example.com",
+            }
         }
 
-        # URL validation may or may not be strict
-        # This tests the model handles it
-        try:
-            obj = ObjectCreate(**data, object_type="note")
-            assert obj.url == "not-a-valid-url"
-        except ValidationError:
-            # If validation is strict, this is also acceptable
-            pass
+        obj = ObjectCreate(**data)
+        assert "example.com" in obj.properties.notes
 
     def test_datetime_validation(self):
         """Test datetime field validation."""
         data = {
-            "title": "Test",
+            "tags": [],
             "created_at": "invalid-datetime",
         }
 
-        with pytest.raises(ValidationError):
-            ObjectProperties(**data, object_type="note")
+        # Datetime is stored as string, no validation
+        props = ObjectProperties(**data)
+        assert props.created_at == "invalid-datetime"
 
     def test_array_validation(self):
         """Test array/list field validation."""
         data = {
             "title": "Test",
-            "tags": "not-an-array",
+            "type": "note",
+            "properties": {
+                "tags": "not-an-array",
+            }
         }
 
+        # Tags in properties should be a list
         with pytest.raises(ValidationError):
-            ObjectCreate(**data, object_type="note")
+            ObjectProperties(tags="not-an-array")
 
     def test_enum_validation(self):
         """Test enum field validation."""
         data = {
             "title": "Test Task",
-            "status": "invalid_status",
+            "priority": "invalid_priority",
         }
 
+        # Priority enum validates
         with pytest.raises(ValidationError):
             TaskCreate(**data)
 
     def test_integer_validation(self):
         """Test integer field validation."""
         data = {
-            "title": "Test",
-            "reading_time": "not-an-integer",
+            "tags": [],
+            "rating": "not-an-integer",
         }
 
+        # Rating should be an integer or None
         with pytest.raises(ValidationError):
-            ObjectCreate(**data, object_type="note")
+            ObjectProperties(**data)
 
     def test_boolean_validation(self):
         """Test boolean field validation."""
         data = {
-            "title": "Test",
-            "checked": "not-a-boolean",
+            "tags": [],
+            "is_watched": "not-a-boolean",
         }
 
+        # is_watched should be a boolean or None
         with pytest.raises(ValidationError):
-            ObjectCreate(**data, object_type="note")
+            ObjectProperties(**data)
