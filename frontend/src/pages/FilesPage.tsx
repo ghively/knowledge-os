@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Folder, File, Search, Plus, RefreshCw, Loader2, FileText, Image, Code, FileCode, Trash2 } from 'lucide-react'
+import { Folder, File, Search, Plus, RefreshCw, Loader2, FileText, Image, Code } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -67,11 +67,12 @@ export function FilesPage() {
   const queryClient = useQueryClient()
 
   // Fetch files
-  const { data: files = [], isLoading, error } = useQuery({
+  const { data: filesData, isLoading, error } = useQuery({
     queryKey: ['files'],
     queryFn: filesApi.list,
     refetchInterval: 30000, // Poll every 30 seconds
   })
+  const files = (filesData?.files ?? []) as FileItem[]
 
   // Add folder mutation
   const addFolderMutation = useMutation({

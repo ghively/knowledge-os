@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { PanelLeft, Search, Settings, Bell, X } from 'lucide-react'
+import { PanelLeft, Search, Settings, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sidebar } from './Sidebar'
 import { Button } from '@/components/ui/button'

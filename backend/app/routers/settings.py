@@ -16,8 +16,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Settings file path
-SETTINGS_FILE = os.getenv("SETTINGS_PATH", "/app/data/settings.json")
-WATCHED_FOLDERS_FILE = os.getenv("WATCHED_FOLDERS_PATH", "/app/data/watched_folders.json")
+SETTINGS_FILE = os.getenv(
+    "SETTINGS_PATH",
+    os.path.join(os.path.dirname(app_settings.watched_folders_path), "settings.json"),
+)
+WATCHED_FOLDERS_FILE = app_settings.watched_folders_path
 
 
 def _load_settings():

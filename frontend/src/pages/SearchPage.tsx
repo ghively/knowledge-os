@@ -1,29 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, FileText, CheckSquare, Folder, Bot, Image, Code, Loader2 } from 'lucide-react'
+import { Search, FileText, Folder, Image, Code, Loader2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { searchApi } from '@/services/api'
+import { searchApi, type SearchResult } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
-interface SearchResult {
-  id: string
-  type: 'object' | 'block' | 'file' | 'image' | 'code'
-  title: string
-  content: string
-  score: number
-  metadata: {
-    object_type?: string
-    block_type?: string
-    file_path?: string
-    agent_name?: string
-    tags?: string[]
-  }
-}
-
-const typeIcons = {
+const typeIcons: Record<string, typeof FileText> = {
   object: FileText,
   block: FileText,
   file: Folder,
@@ -31,7 +16,7 @@ const typeIcons = {
   code: Code,
 }
 
-const typeColors = {
+const typeColors: Record<string, string> = {
   object: 'text-blue-500',
   block: 'text-gray-500',
   file: 'text-yellow-500',
@@ -46,11 +31,17 @@ export function SearchPage() {
   const [activeQuery, setActiveQuery] = useState(initialQuery)
   const [searchType, setSearchType] = useState<'semantic' | 'exact'>('semantic')
 
-  const { data: results = [], isLoading, error } = useQuery({
+  const { data: resultsData, isLoading, error } = useQuery({
     queryKey: ['search', activeQuery, searchType],
-    queryFn: () => activeQuery ? searchApi.search(activeQuery, searchType) : Promise.resolve([]),
+    queryFn: () => {
+      if (!activeQuery) {
+        return Promise.resolve({ results: [] as SearchResult[] })
+      }
+      return searchApi.search(activeQuery, searchType)
+    },
     enabled: !!activeQuery,
   })
+  const results = resultsData?.results ?? []
 
   useEffect(() => {
     if (initialQuery) {
@@ -74,12 +65,12 @@ export function SearchPage() {
 
   const handleResultClick = (result: SearchResult) => {
     // Navigate based on result type
-    switch (result.type) {
-      case 'object':
-      case 'block':
+    switch (result.collection) {
+      case 'objects':
+      case 'blocks':
         window.location.href = `/object/${result.id}`
         break
-      case 'file':
+      case 'files':
         window.location.href = `/files?file=${result.id}`
         break
       default:
@@ -162,7 +153,8 @@ export function SearchPage() {
               </p>
               
               {results.map((result: SearchResult) => {
-                const Icon = typeIcons[result.type] || FileText
+                const resultType = result.collection === 'objects' ? 'object' : result.collection
+                const Icon = typeIcons[resultType] || FileText
                 return (
                   <div
                     key={result.id}
@@ -170,7 +162,7 @@ export function SearchPage() {
                     className="p-4 border rounded-lg hover:bg-muted cursor-pointer transition-colors"
                   >
                     <div className="flex items-start gap-3">
-                      <Icon className={cn("h-5 w-5 mt-0.5 flex-shrink-0", typeColors[result.type])} />
+                      <Icon className={cn("h-5 w-5 mt-0.5 flex-shrink-0", typeColors[resultType] || 'text-gray-500')} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium truncate">{result.title}</h3>
@@ -183,18 +175,8 @@ export function SearchPage() {
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs px-2 py-0.5 bg-muted rounded-full capitalize">
-                            {result.type}
+                            {resultType}
                           </span>
-                          {result.metadata.object_type && (
-                            <span className="text-xs px-2 py-0.5 bg-muted rounded-full">
-                              {result.metadata.object_type}
-                            </span>
-                          )}
-                          {result.metadata.tags?.map((tag) => (
-                            <span key={tag} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
-                              #{tag}
-                            </span>
-                          ))}
                         </div>
                       </div>
                     </div>

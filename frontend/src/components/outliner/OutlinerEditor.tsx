@@ -1,36 +1,28 @@
-import { useCallback, useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { createEditor, Descendant, Transforms, Editor, Element as SlateElement, BaseEditor } from 'slate'
-import { Slate, Editable, withReact, ReactEditor, useSlate } from 'slate-react'
+import { Slate, Editable, withReact, ReactEditor } from 'slate-react'
 import { withHistory } from 'slate-history'
 import { 
   Plus, 
-  GripVertical, 
   CheckSquare, 
   Type, 
   Heading1, 
-  Heading2, 
   List,
   Quote,
-  Code,
-  MoreHorizontal
+  Code
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 
 // Types
 type BlockType = 'paragraph' | 'heading' | 'todo' | 'bullet' | 'numbered' | 'quote' | 'code'
 
-interface BlockElement {
+export interface BlockElement {
   id: string
   type: BlockType
   level?: number
   checked?: boolean
+  content?: string
   children: { text: string }[]
 }
 
@@ -80,7 +72,7 @@ const renderElement = (props: { attributes: any; children: any; element: CustomE
 
   const baseClasses = cn(
     'py-1 px-2 -mx-2 rounded hover:bg-muted/30 transition-colors',
-    level > 0 && `ml-${level * 4}`
+    level > 0 && 'ml-4'
   )
 
   switch (type) {
@@ -338,6 +330,7 @@ export function OutlinerEditor({
       type: (node as CustomElement).type,
       level: (node as CustomElement).level || 0,
       checked: (node as CustomElement).checked,
+      content: (node as CustomElement).children.map((child) => child.text).join(''),
       children: (node as CustomElement).children,
     })) as BlockElement[]
     
@@ -347,6 +340,7 @@ export function OutlinerEditor({
   // Add new block at end
   const addBlock = useCallback(() => {
     if (readOnly) return
+    void objectId
     
     const lastBlock = value[value.length - 1] as CustomElement
     const newBlock = createEmptyBlock('paragraph', lastBlock?.level || 0)

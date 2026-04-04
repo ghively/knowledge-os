@@ -2,7 +2,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -111,6 +111,27 @@ async def root():
     }
 
 
+@app.websocket("/ws")
+@app.websocket("/ws/system")
+@app.websocket("/ws/agents/{agent_name}")
+async def websocket_endpoint(websocket: WebSocket, agent_name: str = "system"):
+    """Shared WebSocket endpoint for live updates."""
+    await websocket_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket_manager.handle_message(websocket, data)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket)
+    except Exception:
+        websocket_manager.disconnect(websocket)
+        raise
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        host=getattr(settings, "host", "0.0.0.0"),
+        port=int(getattr(settings, "port", 8000)),
+    )

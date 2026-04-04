@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { tasksApi, agentsApi, objectsApi } from '@/services/api'
+import { tasksApi, agentsApi, objectsApi, type AgentItem, type ObjectItem } from '@/services/api'
 import { cn } from '@/lib/utils'
 
 interface TaskAssignmentDialogProps {
@@ -48,20 +48,30 @@ export function TaskAssignmentDialog({
   const [additionalObjects, setAdditionalObjects] = useState<string[]>([])
 
   // Fetch agents
-  const { data: agents = [] } = useQuery({
+  const { data: agentsData } = useQuery({
     queryKey: ['agents'],
     queryFn: agentsApi.list,
   })
+  const agents = agentsData?.agents ?? []
 
   // Fetch recent objects for context selection
-  const { data: recentObjects = [] } = useQuery({
+  const { data: recentObjectsData } = useQuery({
     queryKey: ['objects', { limit: 10 }],
     queryFn: () => objectsApi.list({ limit: 10 }),
   })
+  const recentObjects = recentObjectsData?.objects ?? []
 
   // Assign task mutation
   const assignMutation = useMutation({
-    mutationFn: tasksApi.assign,
+    mutationFn: (data: {
+      taskId: string
+      request: {
+        agent_name: string
+        priority: string
+        include_context?: boolean
+        additional_context?: string[]
+      }
+    }) => tasksApi.assign(data.taskId, data.request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['object', taskId] })
@@ -73,11 +83,13 @@ export function TaskAssignmentDialog({
     if (!selectedAgent) return
 
     assignMutation.mutate({
-      task_id: taskId,
-      agent_name: selectedAgent,
-      priority: selectedPriority,
-      include_context: includeContext,
-      additional_context: additionalObjects.length > 0 ? additionalObjects : undefined,
+      taskId,
+      request: {
+        agent_name: selectedAgent,
+        priority: selectedPriority,
+        include_context: includeContext,
+        additional_context: additionalObjects.length > 0 ? additionalObjects : undefined,
+      },
     })
   }
 
@@ -108,14 +120,14 @@ export function TaskAssignmentDialog({
                 <SelectValue placeholder="Select an agent" />
               </SelectTrigger>
               <SelectContent>
-                {agents.map((agent: any) => (
-                  <SelectItem key={agent.id} value={agent.properties?.agent_name || agent.title}>
+                {agents.map((agent: AgentItem) => (
+                  <SelectItem key={agent.id} value={agent.name}>
                     <div className="flex items-center gap-2">
                       <span>🤖</span>
-                      <span>@{agent.properties?.agent_name || agent.title}</span>
-                      {agent.properties?.capabilities && (
+                      <span>@{agent.name}</span>
+                      {agent.capabilities && (
                         <span className="text-muted-foreground text-xs">
-                          ({agent.properties.capabilities.slice(0, 2).join(', ')})
+                          ({agent.capabilities.slice(0, 2).join(', ')})
                         </span>
                       )}
                     </div>
@@ -169,17 +181,17 @@ export function TaskAssignmentDialog({
           </div>
 
           {/* Additional Context Objects */}
-          {includeContext && recentObjects.objects && recentObjects.objects.length > 0 && (
+          {includeContext && recentObjects.length > 0 && (
             <div className="space-y-2">
               <Label>Additional Context (optional)</Label>
               <p className="text-xs text-muted-foreground">
                 Select additional objects to include in the context:
               </p>
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
-                {recentObjects.objects
-                  .filter((obj: any) => obj.id !== taskId)
+                {recentObjects
+                  .filter((obj: ObjectItem) => obj.id !== taskId)
                   .slice(0, 10)
-                  .map((obj: any) => (
+                  .map((obj: ObjectItem) => (
                     <div key={obj.id} className="flex items-center space-x-2">
                       <Checkbox
                         id={`obj-${obj.id}`}

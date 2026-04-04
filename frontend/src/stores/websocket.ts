@@ -1,5 +1,19 @@
 import { create } from 'zustand'
 
+const DEFAULT_WS_URL = (() => {
+  const configuredApiUrl = import.meta.env.VITE_API_URL as string | undefined
+  if (configuredApiUrl) {
+    return `${configuredApiUrl.replace(/^http/, 'ws')}/ws`
+  }
+
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}/ws`
+  }
+
+  return 'ws://localhost:8000/ws'
+})()
+
 interface WebSocketState {
   socket: WebSocket | null
   isConnected: boolean
@@ -28,7 +42,7 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
       return
     }
 
-    const ws = new WebSocket('ws://localhost:8000/ws')
+    const ws = new WebSocket(DEFAULT_WS_URL)
 
     ws.onopen = () => {
       console.log('WebSocket connected')
@@ -54,26 +68,7 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
         set({ lastMessage: message })
         
         // Handle different message types
-        switch (message.type) {
-          case 'pong':
-            // Heartbeat response
-            break
-          case 'object.created':
-          case 'object.updated':
-          case 'object.deleted':
-            // Trigger refetch of objects
-            break
-          case 'task.assigned':
-          case 'task.status_changed':
-          case 'task.completed':
-            // Trigger refetch of tasks
-            break
-          case 'chat.message':
-            // Handle chat message
-            break
-          default:
-            console.log('WebSocket message:', message)
-        }
+        console.log('WebSocket message:', message)
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e)
       }

@@ -7,8 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi, agentsApi } from '@/services/api'
-import { cn } from '@/lib/utils'
+import { settingsApi } from '@/services/api'
 
 interface WatchedFolder {
   id: string
@@ -49,10 +48,11 @@ export function SettingsPage() {
   })
 
   // Fetch watched folders
-  const { data: watchedFolders = [], isLoading: foldersLoading } = useQuery({
+  const { data: watchedFoldersData, isLoading: foldersLoading } = useQuery({
     queryKey: ['watched-folders'],
     queryFn: settingsApi.getWatchedFolders,
   })
+  const watchedFolders = watchedFoldersData?.folders ?? []
 
   // Update local settings when data loads
   useEffect(() => {

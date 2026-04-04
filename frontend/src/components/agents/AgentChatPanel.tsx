@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { agentsApi } from '@/services/api'
+import { agentsApi, type ChatMessage } from '@/services/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { cn } from '@/lib/utils'
 
@@ -15,19 +15,6 @@ interface Agent {
   status: 'idle' | 'working' | 'error' | 'offline'
   current_task?: string
   last_seen?: string
-}
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'agent' | 'system'
-  content: string
-  timestamp: string
-  agent_name?: string
-  metadata?: {
-    action?: string
-    object_id?: string
-    block_id?: string
-  }
 }
 
 interface AgentChatPanelProps {
@@ -42,16 +29,24 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
   const queryClient = useQueryClient()
 
   // Fetch chat history
-  const { data: chatHistory = [], isLoading: historyLoading } = useQuery({
+  const { data: chatHistoryData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', agent?.name],
-    queryFn: () => agent ? agentsApi.getChatHistory(agent.name) : Promise.resolve([]),
+    queryFn: () => {
+      if (!agent) {
+        return Promise.resolve({ messages: [] as ChatMessage[] })
+      }
+      return agentsApi.getChatHistory(agent.name)
+    },
     enabled: !!agent && isOpen,
     refetchInterval: 5000, // Poll every 5 seconds
   })
+  const chatHistory = chatHistoryData?.messages ?? []
 
   // WebSocket for real-time updates
   const { lastMessage, connectionStatus } = useWebSocket(
-    agent ? `ws://localhost:8000/ws/agents/${agent.name}` : null
+    agent
+      ? `${(import.meta.env.VITE_API_URL || window.location.origin).replace(/^http/, 'ws')}/ws/agents/${agent.name}`
+      : null
   )
 
   // Send message mutation
@@ -208,11 +203,6 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
                     ? 'bg-yellow-500/10 text-yellow-700 border border-yellow-500/20'
                     : 'bg-muted'
                 )}>
-                  {msg.metadata?.action && (
-                    <div className="text-xs opacity-70 mb-1 flex items-center gap-1">
-                      <span className="font-medium">Action:</span> {msg.metadata.action}
-                    </div>
-                  )}
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                   <div className={cn(
                     "text-[10px] mt-1",

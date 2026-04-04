@@ -37,7 +37,7 @@ A **Capacities/Anytype-inspired knowledge management system** with **OpenClaw ag
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   Frontend      │────▶│    Backend      │────▶│     Qdrant      │
 │  (React/Vite)   │     │   (FastAPI)     │     │  (Vector DB)    │
-│   Port: 3000    │◄────│   Port: 8000    │◄────│   Port: 6333    │
+│   Port: 3010    │◄────│   Port: 8010    │◄────│   Port: 6335    │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                                │
                                ▼
@@ -80,17 +80,18 @@ vim .env
 
 ```bash
 # Start all services
-docker-compose up -d
+cp .env.example .env
+docker-compose up --build -d
 
 # Or with file watcher
-docker-compose --profile with-watcher up -d
+docker-compose --profile with-watcher up --build -d
 ```
 
 ### 3. Access the Application
 
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **Qdrant Dashboard**: http://localhost:6333/dashboard
+- **Frontend**: http://localhost:3010
+- **Backend API**: http://localhost:8010
+- **Qdrant Dashboard**: http://localhost:6335/dashboard
 
 ## Configuration
 
@@ -99,13 +100,12 @@ docker-compose --profile with-watcher up -d
 Create a `.env` file:
 
 ```env
-# OpenClaw Integration
-OPENCLAW_URL=http://localhost:18789
-OPENCLAW_TOKEN=your_token_here
-
-# File Watching (host paths)
-DOCUMENTS_PATH=/home/user/Documents
-PROJECTS_PATH=/home/user/Projects
+FRONTEND_PORT=3010
+BACKEND_PORT=8010
+QDRANT_HTTP_PORT=6335
+QDRANT_GRPC_PORT=6336
+OPENCLAW_URL=http://host.docker.internal:18789
+OPENCLAW_TOKEN=
 ```
 
 ### Watched Folders
@@ -187,17 +187,17 @@ Add folders to watch via Settings → Watched Folders:
 ```bash
 cd frontend
 npm install
-npm run dev
+VITE_API_URL=http://127.0.0.1:8010 npm run dev
 ```
 
 ### Backend
 
 ```bash
 cd backend
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+PORT=8010 uvicorn app.main:app --host 127.0.0.1 --port 8010
 ```
 
 ### File Watcher (Standalone)
@@ -211,19 +211,19 @@ python file_watcher.py
 
 ### Create Snapshot
 ```bash
-curl -X POST http://localhost:6333/snapshots
+curl -X POST http://localhost:6335/snapshots
 ```
 
 ### Restore from Snapshot
 ```bash
-curl -X POST http://localhost:6333/snapshots/recover \
+curl -X POST http://localhost:6335/snapshots/recover \
   -H "Content-Type: application/json" \
   -d '{"location": "/qdrant/snapshots/snapshot-file"}'
 ```
 
 ### Export to Markdown
 ```bash
-curl -X POST http://localhost:8000/api/settings/backup \
+curl -X POST http://localhost:8010/api/settings/backup \
   -H "Content-Type: application/json" \
   -d '{"type": "markdown"}'
 ```
@@ -231,7 +231,7 @@ curl -X POST http://localhost:8000/api/settings/backup \
 ## Troubleshooting
 
 ### Qdrant won't start
-- Check port 6333 is available
+- Check port 6335 is available or override it in `.env`
 - Verify Docker has sufficient memory (4GB+)
 
 ### Files not indexing
@@ -245,7 +245,7 @@ curl -X POST http://localhost:8000/api/settings/backup \
 
 ### Search not finding results
 - Wait for indexing to complete
-- Check Qdrant collections: http://localhost:6333/dashboard
+- Check Qdrant collections: http://localhost:6335/dashboard
 
 ## License
 
