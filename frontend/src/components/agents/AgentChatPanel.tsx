@@ -16,6 +16,7 @@ interface AgentChatPanelProps {
 
 export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) {
   const [message, setMessage] = useState('')
+  const [sessionId] = useState(() => `ui-${Math.random().toString(36).slice(2, 10)}`)
   const scrollRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
@@ -26,7 +27,7 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
       if (!agent) {
         return Promise.resolve({ messages: [] as ChatMessage[] })
       }
-      return agentsApi.getChatHistory(agent.name)
+      return agentsApi.getChatHistory(agent.name, sessionId)
     },
     enabled: !!agent && isOpen,
     refetchInterval: 5000, // Poll every 5 seconds
@@ -44,7 +45,7 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
   const sendMessageMutation = useMutation({
     mutationFn: (content: string) => {
       if (!agent) throw new Error('No agent selected')
-      return agentsApi.chat(agent.name, content)
+      return agentsApi.chat(agent.name, content, sessionId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chat-history', agent?.name] })

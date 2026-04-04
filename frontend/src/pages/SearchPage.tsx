@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, FileText, Folder, Image, Code, Loader2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { searchApi, type SearchResult } from '@/services/api'
@@ -25,11 +25,13 @@ const typeColors: Record<string, string> = {
 }
 
 export function SearchPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialQuery = searchParams.get('q') || ''
+  const initialType = searchParams.get('type') === 'exact' ? 'exact' : 'semantic'
   const [query, setQuery] = useState(initialQuery)
   const [activeQuery, setActiveQuery] = useState(initialQuery)
-  const [searchType, setSearchType] = useState<'semantic' | 'exact'>('semantic')
+  const [searchType, setSearchType] = useState<'semantic' | 'exact'>(initialType)
 
   const { data: resultsData, isLoading, error } = useQuery({
     queryKey: ['search', activeQuery, searchType],
@@ -48,12 +50,13 @@ export function SearchPage() {
       setQuery(initialQuery)
       setActiveQuery(initialQuery)
     }
-  }, [initialQuery])
+    setSearchType(initialType)
+  }, [initialQuery, initialType])
 
   const handleSearch = () => {
     if (query.trim()) {
       setActiveQuery(query)
-      setSearchParams({ q: query })
+      setSearchParams({ q: query, type: searchType })
     }
   }
 
@@ -64,16 +67,16 @@ export function SearchPage() {
   }
 
   const handleResultClick = (result: SearchResult) => {
-    // Navigate based on result type
     switch (result.collection) {
       case 'objects':
       case 'blocks':
-        window.location.href = `/object/${result.id}`
+        navigate(`/object/${result.id}`)
         break
       case 'files':
-        window.location.href = `/files?file=${result.id}`
+        navigate(`/files?file=${result.id}`)
         break
       default:
+        navigate(`/search?q=${encodeURIComponent(result.title || result.filename || result.id)}&type=${searchType}`)
         break
     }
   }

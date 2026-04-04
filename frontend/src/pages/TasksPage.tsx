@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { TaskAssignmentDialog } from '@/components/tasks/TaskAssignmentDialog'
 import { tasksApi, objectsApi, type TaskItem } from '@/services/api'
 import { cn } from '@/lib/utils'
-import { useNavigate } from 'react-router-dom'
+import { Input } from '@/components/ui/input'
 
 const priorityColors = {
   urgent: 'border-l-red-500 bg-red-50/50',
@@ -38,12 +38,12 @@ const statusColors: Record<string, string> = {
 }
 
 export function TasksPage() {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<'all' | 'todo' | 'in-progress' | 'blocked' | 'review' | 'done'>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all')
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null)
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
 
   // Fetch tasks (objects with type='task')
   const { data: tasksData, isLoading } = useQuery({
@@ -63,14 +63,15 @@ export function TasksPage() {
     mutationFn: objectsApi.create,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      navigate(`/object/${data.id}`)
+      setSelectedTask(data as TaskItem)
+      setNewTaskTitle('')
     },
   })
 
-  const handleCreateTask = () => {
+  const handleCreateTask = (title = 'New Task') => {
     createTaskMutation.mutate({
       type: 'task',
-      title: 'New Task',
+      title,
       content: '',
       properties: {
         status: 'todo',
@@ -82,6 +83,11 @@ export function TasksPage() {
   const handleAssignClick = (task: TaskItem) => {
     setSelectedTask(task)
     setAssignmentDialogOpen(true)
+  }
+
+  const handleInlineCreate = () => {
+    if (!newTaskTitle.trim()) return
+    handleCreateTask(newTaskTitle.trim())
   }
 
   const statusOptions = useMemo(() => ([
@@ -118,7 +124,8 @@ export function TasksPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-6">
+    <div className="mx-auto flex max-w-6xl gap-6 px-6 py-8">
+      <div className="min-w-0 flex-1">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -130,9 +137,22 @@ export function TasksPage() {
             {tasks.length} tasks • {byStatus.done || 0} completed
           </p>
         </div>
-        <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending}>
+        <Button onClick={() => handleCreateTask()} disabled={createTaskMutation.isPending}>
           <Plus className="h-4 w-4 mr-2" />
           {createTaskMutation.isPending ? 'Creating...' : 'New Task'}
+        </Button>
+      </div>
+
+      <div className="mb-6 flex gap-2 rounded-lg border bg-card p-3">
+        <Input
+          value={newTaskTitle}
+          onChange={(event) => setNewTaskTitle(event.target.value)}
+          onKeyDown={(event) => event.key === 'Enter' && handleInlineCreate()}
+          placeholder="Create a task inline..."
+        />
+        <Button onClick={handleInlineCreate} disabled={createTaskMutation.isPending || !newTaskTitle.trim()}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add
         </Button>
       </div>
 
@@ -180,7 +200,7 @@ export function TasksPage() {
                 'p-4 bg-card border rounded-lg border-l-4 hover:shadow-sm transition-shadow cursor-pointer',
                 priorityColors[task.properties?.priority || 'medium']
               )}
-              onClick={() => navigate(`/object/${task.id}`)}
+              onClick={() => setSelectedTask(task)}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -241,6 +261,51 @@ export function TasksPage() {
           ))
         )}
       </div>
+      </div>
+
+      <aside className="sticky top-6 h-fit w-full max-w-sm rounded-xl border bg-card p-5">
+        {selectedTask ? (
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">Task Details</div>
+              <h2 className="text-xl font-semibold">{selectedTask.title}</h2>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                {selectedTask.content || 'No task description yet.'}
+              </p>
+            </div>
+            <div className="grid gap-3 text-sm">
+              <div>
+                <div className="text-muted-foreground">Status</div>
+                <div>{statusLabels[selectedTask.properties?.status || 'todo']}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Priority</div>
+                <div className="capitalize">{selectedTask.properties?.priority || 'medium'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Assigned To</div>
+                <div>{selectedTask.properties?.assigned_to ? `@${String(selectedTask.properties.assigned_to)}` : 'Unassigned'}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Current Action</div>
+                <div>{String(selectedTask.properties?.current_action || 'Idle')}</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {!selectedTask.properties?.assigned_to && selectedTask.properties?.status !== 'done' && (
+                <Button onClick={() => handleAssignClick(selectedTask)}>Assign</Button>
+              )}
+              <Button variant="outline" onClick={() => window.location.assign(`/object/${selectedTask.id}`)}>
+                Open Note
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">
+            Select a task to inspect its details and assignment state.
+          </div>
+        )}
+      </aside>
 
       {/* Assignment Dialog */}
       {selectedTask && (
