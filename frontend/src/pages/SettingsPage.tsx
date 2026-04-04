@@ -19,10 +19,15 @@ interface WatchedFolder {
 interface Settings {
   openclaw_url: string
   openclaw_token?: string
+  openclaw_enabled?: boolean
   backup_snapshots: boolean
   backup_markdown: boolean
   backup_git: boolean
   git_repo_url?: string
+  snapshot_interval_hours?: number
+  markdown_export_interval_hours?: number
+  git_sync_interval_minutes?: number
+  embedding_model?: string
   auto_index: boolean
 }
 
@@ -31,10 +36,15 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     openclaw_url: 'http://localhost:18789',
     openclaw_token: '',
+    openclaw_enabled: true,
     backup_snapshots: true,
     backup_markdown: true,
     backup_git: false,
     git_repo_url: '',
+    snapshot_interval_hours: 24,
+    markdown_export_interval_hours: 168,
+    git_sync_interval_minutes: 30,
+    embedding_model: 'all-MiniLM-L6-v2',
     auto_index: true,
   })
   const [addFolderOpen, setAddFolderOpen] = useState(false)
@@ -139,6 +149,21 @@ export function SettingsPage() {
               </div>
               
               <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <Checkbox
+                    id="openclaw-enabled"
+                    checked={settings.openclaw_enabled}
+                    onCheckedChange={(checked) => setSettings({ ...settings, openclaw_enabled: checked as boolean })}
+                  />
+                  <div>
+                    <Label htmlFor="openclaw-enabled" className="font-medium">
+                      Enable OpenClaw
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Turn agent gateway integration on or off without changing your config.
+                    </p>
+                  </div>
+                </div>
                 <div>
                   <Label htmlFor="openclaw-url">Gateway URL</Label>
                   <Input
@@ -233,6 +258,13 @@ export function SettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       Daily automatic backups of your vector database
                     </p>
+                    <Input
+                      className="mt-2 max-w-xs"
+                      type="number"
+                      value={settings.snapshot_interval_hours}
+                      onChange={(e) => setSettings({ ...settings, snapshot_interval_hours: Number(e.target.value) })}
+                      placeholder="24"
+                    />
                   </div>
                   <Button
                     variant="ghost"
@@ -259,6 +291,13 @@ export function SettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       Weekly export to markdown files
                     </p>
+                    <Input
+                      className="mt-2 max-w-xs"
+                      type="number"
+                      value={settings.markdown_export_interval_hours}
+                      onChange={(e) => setSettings({ ...settings, markdown_export_interval_hours: Number(e.target.value) })}
+                      placeholder="168"
+                    />
                   </div>
                   <Button
                     variant="ghost"
@@ -285,6 +324,13 @@ export function SettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       Sync to Git repository
                     </p>
+                    <Input
+                      className="mt-2 max-w-xs"
+                      type="number"
+                      value={settings.git_sync_interval_minutes}
+                      onChange={(e) => setSettings({ ...settings, git_sync_interval_minutes: Number(e.target.value) })}
+                      placeholder="30"
+                    />
                   </div>
                   <Button
                     variant="ghost"
@@ -334,6 +380,14 @@ export function SettingsPage() {
                     Automatically index new files as they are added to watched folders
                   </p>
                 </div>
+              </div>
+              <div className="mt-4">
+                <Label htmlFor="embedding-model">Embedding Model</Label>
+                <Input
+                  id="embedding-model"
+                  value={settings.embedding_model}
+                  onChange={(e) => setSettings({ ...settings, embedding_model: e.target.value })}
+                />
               </div>
             </section>
           </div>

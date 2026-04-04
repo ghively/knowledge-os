@@ -5,20 +5,8 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { filesApi, settingsApi } from '@/services/api'
+import { filesApi, settingsApi, type FileItem } from '@/services/api'
 import { cn } from '@/lib/utils'
-
-interface FileItem {
-  id: string
-  name: string
-  type: 'file' | 'folder'
-  path: string
-  size?: number
-  modified: string
-  content_type?: string
-  indexed?: boolean
-  indexed_at?: string
-}
 
 const fileTypeIcons: Record<string, React.ElementType> = {
   'text/plain': FileText,
@@ -94,7 +82,7 @@ export function FilesPage() {
   })
 
   const filteredFiles = files.filter((file: FileItem) =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (file.filename || file.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     file.path.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
@@ -174,28 +162,37 @@ export function FilesPage() {
           ) : (
             <div className="space-y-1">
               {filteredFiles.map((file: FileItem) => {
-                const Icon = getFileIcon(file.content_type)
+                const contentType = file.mime_type || file.content_type
+                const Icon = getFileIcon(contentType)
                 return (
                   <div
                     key={file.id}
                     className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg cursor-pointer group"
                     onClick={() => setSelectedFile(file)}
                   >
-                    <Icon className={cn("h-5 w-5", getFileColor(file.content_type))} />
+                    <Icon className={cn("h-5 w-5", getFileColor(contentType))} />
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{file.name}</div>
+                      <div className="font-medium truncate">{file.filename || file.name}</div>
                       <div className="text-sm text-muted-foreground truncate">{file.path}</div>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      {file.size !== undefined && (
-                        <span className="hidden sm:inline">{formatFileSize(file.size)}</span>
+                      {file.size_bytes !== undefined && (
+                        <span className="hidden sm:inline">{formatFileSize(file.size_bytes)}</span>
                       )}
-                      <span className="hidden md:inline">
-                        {new Date(file.modified).toLocaleDateString()}
-                      </span>
-                      {file.indexed && (
-                        <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">
-                          Indexed
+                      {file.last_indexed && (
+                        <span className="hidden md:inline">
+                          {new Date(file.last_indexed).toLocaleDateString()}
+                        </span>
+                      )}
+                      {file.index_status && (
+                        <span className={cn(
+                          "text-xs px-2 py-0.5 rounded-full",
+                          file.index_status === 'indexed' && 'bg-green-500/10 text-green-600',
+                          file.index_status === 'error' && 'bg-red-500/10 text-red-600',
+                          file.index_status === 'processing' && 'bg-blue-500/10 text-blue-600',
+                          file.index_status === 'pending' && 'bg-yellow-500/10 text-yellow-700'
+                        )}>
+                          {file.index_status}
                         </span>
                       )}
                       <Button
@@ -261,9 +258,9 @@ export function FilesPage() {
                 <DialogTitle className="flex items-center gap-2">
                   {(() => {
                     const Icon = getFileIcon(selectedFile.content_type)
-                    return <Icon className={cn("h-5 w-5", getFileColor(selectedFile.content_type))} />
+                    return <Icon className={cn("h-5 w-5", getFileColor(selectedFile.mime_type || selectedFile.content_type))} />
                   })()}
-                  {selectedFile.name}
+                  {selectedFile.filename || selectedFile.name}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -274,26 +271,32 @@ export function FilesPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Type:</span>
-                    <p className="mt-1 capitalize">{selectedFile.type}</p>
+                    <p className="mt-1">{selectedFile.mime_type || selectedFile.content_type || 'Unknown'}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Size:</span>
-                    <p className="mt-1">{formatFileSize(selectedFile.size)}</p>
+                    <p className="mt-1">{formatFileSize(selectedFile.size_bytes)}</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Modified:</span>
-                    <p className="mt-1">{new Date(selectedFile.modified).toLocaleString()}</p>
+                    <span className="text-muted-foreground">Indexed:</span>
+                    <p className="mt-1">{selectedFile.last_indexed ? new Date(selectedFile.last_indexed).toLocaleString() : 'Not indexed'}</p>
                   </div>
-                  {selectedFile.content_type && (
+                  {(selectedFile.mime_type || selectedFile.content_type) && (
                     <div>
                       <span className="text-muted-foreground">Content Type:</span>
-                      <p className="mt-1">{selectedFile.content_type}</p>
+                      <p className="mt-1">{selectedFile.mime_type || selectedFile.content_type}</p>
                     </div>
                   )}
-                  {selectedFile.indexed_at && (
+                  {selectedFile.checksum && (
                     <div>
-                      <span className="text-muted-foreground">Indexed:</span>
-                      <p className="mt-1">{new Date(selectedFile.indexed_at).toLocaleString()}</p>
+                      <span className="text-muted-foreground">Checksum:</span>
+                      <p className="mt-1 font-mono text-xs break-all">{selectedFile.checksum}</p>
+                    </div>
+                  )}
+                  {selectedFile.error_message && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Error:</span>
+                      <p className="mt-1 text-red-600">{selectedFile.error_message}</p>
                     </div>
                   )}
                 </div>

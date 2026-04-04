@@ -92,10 +92,17 @@ export interface WatchedFolder {
 export interface AppSettings {
   openclaw_url: string
   openclaw_token?: string
+  openclaw_enabled?: boolean
   backup_snapshots: boolean
   backup_markdown: boolean
   backup_git: boolean
   git_repo_url?: string
+  snapshot_interval_hours?: number
+  markdown_export_interval_hours?: number
+  git_sync_interval_minutes?: number
+  embedding_model?: string
+  image_embedding_model?: string
+  max_context_tokens?: number
   auto_index: boolean
 }
 
