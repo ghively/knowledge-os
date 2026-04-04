@@ -37,7 +37,11 @@ class OpenClawService:
                 json=payload,
             )
             response.raise_for_status()
-            return response.json() if response.content else {}
+            if not response.content:
+                return {}
+            if "application/json" not in response.headers.get("content-type", ""):
+                return {"status": "ok", "content": response.text, "metadata": {}}
+            return response.json()
 
     async def send_message(self, agent_name: str, content: str, session_id: str = "main") -> Dict[str, Any]:
         payload = {

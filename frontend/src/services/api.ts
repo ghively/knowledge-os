@@ -38,9 +38,11 @@ export interface AgentItem {
   id: string
   name: string
   description?: string
-  status: 'idle' | 'working' | 'error' | 'offline'
+  status: 'active' | 'idle' | 'busy' | 'offline' | 'working' | 'error'
   capabilities?: string[]
   current_task?: string
+  current_action?: string
+  last_seen?: string
 }
 
 export interface ChatMessage {
@@ -271,7 +273,9 @@ export const relationsApi = {
     source_id: string
     target_id: string
     relation_type: string
-    metadata?: Record<string, unknown>
+    source_type?: 'object' | 'block'
+    target_type?: 'object' | 'block'
+    context?: string
   }) => api.post('/relations', data).then((r) => r.data),
 
   delete: (id: string) =>

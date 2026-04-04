@@ -5,15 +5,7 @@ import { Sidebar } from './Sidebar'
 import { Button } from '@/components/ui/button'
 import { AgentChatPanel } from '@/components/agents/AgentChatPanel'
 import { useNavigate } from 'react-router-dom'
-
-interface Agent {
-  id: string
-  name: string
-  description?: string
-  status: 'idle' | 'working' | 'error' | 'offline'
-  current_task?: string
-  last_seen?: string
-}
+import { type AgentItem } from '@/services/api'
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -21,12 +13,12 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<AgentItem | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
 
-  const handleAgentClick = (agent: Agent) => {
+  const handleAgentClick = (agent: AgentItem) => {
     setSelectedAgent(agent)
     setChatOpen(true)
   }

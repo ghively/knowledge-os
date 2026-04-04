@@ -4,21 +4,12 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { agentsApi, type ChatMessage } from '@/services/api'
+import { agentsApi, type AgentItem, type ChatMessage } from '@/services/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { cn } from '@/lib/utils'
 
-interface Agent {
-  id: string
-  name: string
-  description?: string
-  status: 'idle' | 'working' | 'error' | 'offline'
-  current_task?: string
-  last_seen?: string
-}
-
 interface AgentChatPanelProps {
-  agent: Agent | null
+  agent: AgentItem | null
   isOpen: boolean
   onClose: () => void
 }
@@ -73,7 +64,7 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
     if (lastMessage) {
       try {
         const data = JSON.parse(lastMessage.data)
-        if (data.type === 'agent_message' || data.type === 'agent_status') {
+        if (data.type === 'chat.message' || data.type === 'agent.status_changed' || data.type === 'agent.current_action') {
           queryClient.invalidateQueries({ queryKey: ['chat-history', agent?.name] })
         }
       } catch {
@@ -94,20 +85,24 @@ export function AgentChatPanel({ agent, isOpen, onClose }: AgentChatPanelProps) 
     }
   }
 
-  const getStatusColor = (status: Agent['status']) => {
+  const getStatusColor = (status: AgentItem['status']) => {
     switch (status) {
-      case 'idle': return 'text-green-500'
+      case 'active':
+      case 'busy':
       case 'working': return 'text-blue-500 animate-pulse'
+      case 'idle': return 'text-green-500'
       case 'error': return 'text-red-500'
       case 'offline': return 'text-gray-400'
       default: return 'text-gray-400'
     }
   }
 
-  const getStatusText = (status: Agent['status']) => {
+  const getStatusText = (status: AgentItem['status']) => {
     switch (status) {
+      case 'active':
+      case 'busy':
+      case 'working': return 'Busy'
       case 'idle': return 'Idle'
-      case 'working': return 'Working'
       case 'error': return 'Error'
       case 'offline': return 'Offline'
       default: return 'Unknown'
