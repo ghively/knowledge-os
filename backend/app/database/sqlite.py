@@ -1,7 +1,8 @@
 """SQLite Database Manager"""
 import os
+import json
 import logging
-from typing import Optional
+from typing import Any, Iterable, Optional
 import aiosqlite
 
 from app.config import settings
@@ -29,6 +30,7 @@ class SQLiteManager:
         
         # Enable foreign keys
         await self.connection.execute("PRAGMA foreign_keys = ON")
+        self.connection.row_factory = aiosqlite.Row
         
         # Create tables
         await self._create_tables()
@@ -41,7 +43,7 @@ class SQLiteManager:
         await self.connection.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
+                value TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -50,10 +52,49 @@ class SQLiteManager:
         await self.connection.execute("""
             CREATE TABLE IF NOT EXISTS watched_folders (
                 id TEXT PRIMARY KEY,
-                path TEXT NOT NULL UNIQUE,
+                path TEXT UNIQUE NOT NULL,
                 recursive INTEGER DEFAULT 1,
+                include_patterns TEXT DEFAULT '["*"]',
+                exclude_patterns TEXT DEFAULT '[".git", "node_modules"]',
+                enabled INTEGER DEFAULT 1,
                 file_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await self.connection.execute("""
+            CREATE TABLE IF NOT EXISTS file_sync_status (
+                file_path TEXT PRIMARY KEY,
+                checksum TEXT,
+                last_modified TIMESTAMP,
+                index_status TEXT DEFAULT 'pending',
+                error_message TEXT,
+                object_id TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await self.connection.execute("""
+            CREATE TABLE IF NOT EXISTS backup_log (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                details TEXT,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+        """)
+
+        await self.connection.execute("""
+            CREATE TABLE IF NOT EXISTS agent_sessions (
+                id TEXT PRIMARY KEY,
+                agent_name TEXT NOT NULL,
+                task_id TEXT,
+                status TEXT DEFAULT 'active',
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP,
+                summary TEXT,
+                messages_count INTEGER DEFAULT 0
             )
         """)
         
@@ -67,6 +108,14 @@ class SQLiteManager:
         async with self.connection.execute(query, parameters) as cursor:
             await self.connection.commit()
             return cursor
+
+    async def executemany(self, query: str, parameters: Iterable[tuple]):
+        """Execute many rows for a query"""
+        if not self.connection:
+            raise RuntimeError("Database not initialized")
+
+        await self.connection.executemany(query, parameters)
+        await self.connection.commit()
     
     async def fetchone(self, query: str, parameters: tuple = ()):
         """Fetch a single row"""
@@ -74,7 +123,8 @@ class SQLiteManager:
             raise RuntimeError("Database not initialized")
         
         async with self.connection.execute(query, parameters) as cursor:
-            return await cursor.fetchone()
+            row = await cursor.fetchone()
+            return dict(row) if row is not None else None
     
     async def fetchall(self, query: str, parameters: tuple = ()):
         """Fetch all rows"""
@@ -82,7 +132,31 @@ class SQLiteManager:
             raise RuntimeError("Database not initialized")
         
         async with self.connection.execute(query, parameters) as cursor:
-            return await cursor.fetchall()
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def upsert_setting(self, key: str, value: Any):
+        """Store a JSON-serializable setting value."""
+        await self.execute(
+            """
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, json.dumps(value)),
+        )
+
+    async def get_setting(self, key: str, default: Any = None):
+        """Load a setting value."""
+        row = await self.fetchone("SELECT value FROM settings WHERE key = ?", (key,))
+        if not row or row.get("value") is None:
+            return default
+        try:
+            return json.loads(row["value"])
+        except json.JSONDecodeError:
+            return row["value"]
     
     async def close(self):
         """Close database connection"""

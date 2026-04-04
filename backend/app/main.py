@@ -14,7 +14,7 @@ from app.services.file_watcher import file_watcher_service
 from app.services.websocket_manager import websocket_manager
 
 # Import routers
-from app.routers import objects, blocks, tasks, search, agents, chat, files, settings as settings_router
+from app.routers import objects, blocks, tasks, search, agents, chat, files, relations, settings as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -89,6 +89,7 @@ app.include_router(search.router, prefix="/api/search", tags=["Search"])
 app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
+app.include_router(relations.router, prefix="/api/relations", tags=["Relations"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
 
 

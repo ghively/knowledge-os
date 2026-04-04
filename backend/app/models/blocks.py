@@ -8,6 +8,10 @@ class BlockProperties(BaseModel):
     checked: Optional[bool] = None
     language: Optional[str] = None
     url: Optional[str] = None
+    collapsed: Optional[bool] = None
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    priority: Optional[str] = None
 
 
 class Block(BaseModel):
@@ -20,6 +24,8 @@ class Block(BaseModel):
     order: int = 0
     properties: BlockProperties = Field(default_factory=BlockProperties)
     parent_id: Optional[str] = None
+    references: List[str] = Field(default_factory=list)
+    referenced_by: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -32,6 +38,7 @@ class BlockCreate(BaseModel):
     level: int = 0
     properties: Optional[BlockProperties] = None
     parent_id: Optional[str] = None
+    order: Optional[int] = None
 
 
 class BlockUpdate(BaseModel):
