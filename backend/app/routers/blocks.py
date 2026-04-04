@@ -1,7 +1,6 @@
 """Blocks Router - CRUD operations for blocks."""
 import logging
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -10,6 +9,7 @@ from app.models.blocks import BlockCreate, BlockListResponse, BlockUpdate
 from app.services.embedding import embedding_service
 from app.services.relations import relation_service
 from app.services.websocket_manager import WebSocketEvents, websocket_manager
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ async def create_block(block: BlockCreate):
         "parent_id": block.parent_id,
         "references": [],
         "referenced_by": [],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
+        "created_at": utc_now_iso(),
+        "updated_at": utc_now_iso(),
     }
 
     await client.upsert(
@@ -97,7 +97,7 @@ async def update_block(block_id: str, update: BlockUpdate):
         payload["order"] = update.order
     if "parent_id" in update.model_fields_set:
         payload["parent_id"] = update.parent_id
-    payload["updated_at"] = datetime.utcnow().isoformat()
+    payload["updated_at"] = utc_now_iso()
 
     if content_changed:
         embedding = await embedding_service.embed_text(payload["content"])
@@ -138,11 +138,60 @@ async def batch_update_blocks(data: dict):
             payload["parent_id"] = block_data["parent_id"]
         if "level" in block_data:
             payload["level"] = block_data["level"]
-        payload["updated_at"] = datetime.utcnow().isoformat()
+        payload["updated_at"] = utc_now_iso()
         await client.set_payload(collection_name="blocks", payload=payload, points=[block_id])
         updated += 1
 
     return {"message": f"Updated {updated} blocks", "count": updated}
+
+
+@router.put("/object/{object_id}/sync")
+async def sync_blocks_for_object(object_id: str, data: dict):
+    """Replace an object's block set in a single request."""
+    client = qdrant_manager.get_async_client()
+    incoming_blocks = data.get("blocks", [])
+
+    existing = await client.scroll(
+        collection_name="blocks",
+        scroll_filter={"must": [{"key": "object_id", "match": {"value": object_id}}]},
+        limit=5000,
+        with_payload=True,
+        with_vectors=False,
+    )
+    existing_map = {str(point.id): dict(point.payload or {}) for point in existing[0]}
+    incoming_ids = {block["id"] for block in incoming_blocks if block.get("id")}
+
+    for block_id, payload in existing_map.items():
+        if block_id not in incoming_ids:
+            await relation_service.remove_block_references(block_id)
+            await client.delete(collection_name="blocks", points_selector=[block_id])
+
+    for order, block in enumerate(incoming_blocks):
+        block_id = block.get("id") or str(uuid.uuid4())
+        existing_payload = existing_map.get(block_id)
+        payload = {
+            "id": block_id,
+            "object_id": object_id,
+            "type": block.get("type", "paragraph"),
+            "content": block.get("content", ""),
+            "level": block.get("level", 0),
+            "order": order,
+            "properties": block.get("properties", {}),
+            "parent_id": block.get("parent_id"),
+            "references": existing_payload.get("references", []) if existing_payload else [],
+            "referenced_by": existing_payload.get("referenced_by", []) if existing_payload else [],
+            "created_at": existing_payload.get("created_at", utc_now_iso()) if existing_payload else utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
+        embedding = await embedding_service.embed_text(payload["content"])
+        await client.upsert(
+            collection_name="blocks",
+            points=[{"id": block_id, "vector": embedding.tolist(), "payload": payload}],
+        )
+        await relation_service.sync_block_references(block_id, object_id, payload["content"])
+
+    await websocket_manager.broadcast(WebSocketEvents.object_updated(object_id, ["blocks"]))
+    return {"message": "Blocks synced", "count": len(incoming_blocks)}
 
 
 @router.delete("/{block_id}")

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from app.database.qdrant_client import qdrant_manager
 from app.models.relations import RelationCreate, RelationListResponse, RelationUpdate
 from app.services.relations import relation_service
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ async def create_relation(relation: RelationCreate):
 
 @router.get("/object/{object_id}", response_model=RelationListResponse)
 async def get_relations_for_object(object_id: str):
-    """Get all relations where an object is source or target."""
+    """Get all relations where an entity is source or target."""
     relations = await relation_service.list_relations_for_object(object_id)
     return RelationListResponse(relations=relations)
 
@@ -52,6 +53,7 @@ async def update_relation(relation_id: str, update: RelationUpdate):
         payload["relation_type"] = update.relation_type
     if update.context is not None:
         payload["context"] = update.context
+    payload["updated_at"] = utc_now_iso()
 
     await client.set_payload(collection_name="relations", payload=payload, points=[relation_id])
     return payload

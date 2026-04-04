@@ -5,12 +5,12 @@ import hashlib
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
-from datetime import datetime
 
 from app.database.qdrant_client import qdrant_manager
 from app.database.sqlite import sqlite_manager
 from app.services.websocket_manager import websocket_manager, WebSocketEvents
 from app.services.embedding import embedding_service
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -226,7 +226,7 @@ async def index_file_content(file_id: str, data: dict):
                 "content_type": content_type,
                 "content_preview": content[:1000] if content else "",
                 "hash": file_hash,
-                "indexed_at": datetime.utcnow().isoformat(),
+                "indexed_at": utc_now_iso(),
                 "indexed": True
             }
         }]

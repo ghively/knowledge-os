@@ -1,11 +1,11 @@
 """Relation and reference synchronization helpers."""
 import re
 import uuid
-from datetime import datetime
-from typing import Iterable, List, Optional
+from typing import List
 
 from app.database.qdrant_client import qdrant_manager
 from app.services.embedding import embedding_service
+from app.utils.time import utc_now_iso
 
 BLOCK_REFERENCE_PATTERN = re.compile(r"\(\(([a-zA-Z0-9-]+)\)\)")
 WIKI_LINK_PATTERN = re.compile(r"\[\[([^\]]+)\]\]")
@@ -70,7 +70,7 @@ class RelationService:
             "target_type": target_type,
             "relation_type": relation_type,
             "context": context,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utc_now_iso(),
         }
         await client.upsert(
             collection_name="relations",
@@ -120,7 +120,7 @@ class RelationService:
         new_references = set(self.extract_block_references(content))
 
         payload["references"] = sorted(new_references)
-        payload["updated_at"] = datetime.utcnow().isoformat()
+        payload["updated_at"] = utc_now_iso()
         await client.set_payload(collection_name="blocks", payload=payload, points=[block_id])
 
         for removed_id in old_references - new_references:
@@ -173,7 +173,7 @@ class RelationService:
         referenced_by = set(payload.get("referenced_by", []))
         referenced_by.add(block_id)
         payload["referenced_by"] = sorted(referenced_by)
-        payload["updated_at"] = datetime.utcnow().isoformat()
+        payload["updated_at"] = utc_now_iso()
         await client.set_payload(collection_name="blocks", payload=payload, points=[referenced_block_id])
 
     async def _remove_back_reference(self, referenced_block_id: str, block_id: str):
@@ -191,7 +191,7 @@ class RelationService:
         if block_id in referenced_by:
             referenced_by.remove(block_id)
             payload["referenced_by"] = sorted(referenced_by)
-            payload["updated_at"] = datetime.utcnow().isoformat()
+            payload["updated_at"] = utc_now_iso()
             await client.set_payload(collection_name="blocks", payload=payload, points=[referenced_block_id])
 
     @staticmethod

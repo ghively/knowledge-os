@@ -20,14 +20,18 @@ class ContextBuilder:
         client = qdrant_manager.get_async_client()
         settings = await sqlite_manager.get_setting("max_context_tokens", 4000)
         context = {
+            "task_id": task_id,
+            "task_title": None,
+            "task_content": None,
+            "priority": None,
             "task": None,
             "parent_object": None,
             "linked_objects": [],
             "related_files": [],
-            "agent_memories": [],
+            "relevant_memories": [],
             "recent_chat": [],
             "additional_context_objects": [],
-            "qdrant_pointers": [],
+            "qdrant_pointers": {},
             "max_context_tokens": settings,
         }
 
@@ -43,7 +47,10 @@ class ContextBuilder:
         task_payload = dict(task_result[0].payload or {})
         task_payload["id"] = str(task_result[0].id)
         context["task"] = task_payload
-        context["qdrant_pointers"].append({"collection": "objects", "id": task_id})
+        context["task_title"] = task_payload.get("title")
+        context["task_content"] = task_payload.get("content")
+        context["priority"] = task_payload.get("properties", {}).get("priority")
+        context["qdrant_pointers"]["task_object_id"] = task_id
 
         properties = task_payload.get("properties", {})
         parent_id = properties.get("parent_id")
@@ -53,7 +60,7 @@ class ContextBuilder:
             parent = await self._get_pointer("objects", parent_id)
             if parent:
                 context["parent_object"] = parent
-                context["qdrant_pointers"].append({"collection": "objects", "id": parent_id})
+                context["qdrant_pointers"]["parent_object_id"] = parent_id
 
         for object_id in linked_ids:
             linked = await self._get_pointer("objects", object_id)
@@ -62,7 +69,10 @@ class ContextBuilder:
                     context["additional_context_objects"].append(linked)
                 else:
                     context["linked_objects"].append(linked)
-                context["qdrant_pointers"].append({"collection": "objects", "id": object_id})
+        context["qdrant_pointers"]["linked_object_ids"] = [item["id"] for item in context["linked_objects"]]
+        context["qdrant_pointers"]["additional_context_object_ids"] = [
+            item["id"] for item in context["additional_context_objects"]
+        ]
 
         query_text = task_payload.get("content") or task_payload.get("title", "")
         if query_text:
@@ -79,7 +89,7 @@ class ContextBuilder:
                 payload["id"] = str(point.id)
                 payload["score"] = point.score
                 context["related_files"].append(payload)
-                context["qdrant_pointers"].append({"collection": "files", "id": str(point.id)})
+        context["qdrant_pointers"]["related_file_ids"] = [item["id"] for item in context["related_files"]]
 
         assigned_to = properties.get("assigned_to")
         if assigned_to:
@@ -93,8 +103,7 @@ class ContextBuilder:
             for point in memories[0]:
                 payload = dict(point.payload or {})
                 payload["id"] = str(point.id)
-                context["agent_memories"].append(payload)
-                context["qdrant_pointers"].append({"collection": "agent_memories", "id": str(point.id)})
+                context["relevant_memories"].append(payload)
 
             chat = await client.scroll(
                 collection_name="chat_logs",
@@ -108,8 +117,9 @@ class ContextBuilder:
                 payload = dict(point.payload or {})
                 payload["id"] = str(point.id)
                 recent.append(payload)
-                context["qdrant_pointers"].append({"collection": "chat_logs", "id": str(point.id)})
             context["recent_chat"] = sorted(recent, key=lambda item: item.get("timestamp", ""))[-10:]
+            context["qdrant_pointers"]["agent_memory_ids"] = [item["id"] for item in context["relevant_memories"]]
+            context["qdrant_pointers"]["recent_chat_ids"] = [item["id"] for item in context["recent_chat"]]
 
         return context
 

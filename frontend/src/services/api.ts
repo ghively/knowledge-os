@@ -91,6 +91,18 @@ export interface WatchedFolder {
   file_count: number
 }
 
+export interface RelationItem {
+  id: string
+  source_id: string
+  source_type: 'object' | 'block'
+  target_id: string
+  target_type: 'object' | 'block'
+  relation_type: string
+  context?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface AppSettings {
   openclaw_url: string
   openclaw_token?: string
@@ -165,7 +177,7 @@ export const objectsApi = {
     api.delete(`/objects/${id}`).then((r) => r.data),
 
   getRelations: (id: string) =>
-    api.get<{ relations: unknown[] }>(`/objects/${id}/relations`).then((r) => r.data),
+    api.get<{ relations: RelationItem[] }>(`/relations/object/${id}`).then((r) => r.data),
 }
 
 // Blocks API
@@ -188,6 +200,16 @@ export const blocksApi = {
 
   batchUpdate: (blocks: { id: string; order: number; parent_id?: string | null; level?: number }[]) =>
     api.post('/blocks/batch-update', { blocks }).then((r) => r.data),
+
+  syncForObject: (objectId: string, blocks: Array<{
+    id: string
+    content: string
+    type?: string
+    level?: number
+    order?: number
+    parent_id?: string | null
+    properties?: Record<string, unknown>
+  }>) => api.put(`/blocks/object/${objectId}/sync`, { blocks }).then((r) => r.data),
 
   delete: (id: string) =>
     api.delete(`/blocks/${id}`).then((r) => r.data),
@@ -302,7 +324,7 @@ export const relationsApi = {
     api.delete(`/relations/${id}`).then((r) => r.data),
 
   getForObject: (objectId: string) =>
-    api.get<{ relations: unknown[] }>(`/relations/object/${objectId}`).then((r) => r.data),
+    api.get<{ relations: RelationItem[] }>(`/relations/object/${objectId}`).then((r) => r.data),
 }
 
 // WebSocket API (for reference - actual WebSocket handled by useWebSocket hook)

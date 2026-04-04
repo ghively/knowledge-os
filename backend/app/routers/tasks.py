@@ -1,7 +1,7 @@
 """Tasks Router - Task management and assignment."""
 import logging
+import os
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -12,12 +12,14 @@ from app.services.context_builder import context_builder
 from app.services.embedding import embedding_service
 from app.services.openclaw import openclaw_service
 from app.services.websocket_manager import WebSocketEvents, websocket_manager
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = ["todo", "in-progress", "blocked", "review", "done"]
 VALID_PRIORITIES = ["low", "medium", "high", "urgent"]
+HEARTBEAT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "HEARTBEAT.md")
 
 
 def _task_counts(tasks: list, key: str):
@@ -26,6 +28,33 @@ def _task_counts(tasks: list, key: str):
         value = task.get("properties", {}).get(key)
         counts[value] = counts.get(value, 0) + 1
     return counts
+
+
+async def _write_to_heartbeat(task_id: str, agent_name: str, task: dict, context: dict):
+    os.makedirs(os.path.dirname(HEARTBEAT_PATH), exist_ok=True)
+    lines = [
+        f"## {utc_now_iso()} | @{agent_name} | task:{task_id}",
+        "",
+        f"Title: {task.get('title', '')}",
+        f"Priority: {task.get('properties', {}).get('priority', 'low')}",
+        "",
+        "Task:",
+        task.get("content") or task.get("title", ""),
+        "",
+        "Context pointers:",
+    ]
+
+    pointers = context.get("qdrant_pointers", {})
+    for key, value in pointers.items():
+        if isinstance(value, list):
+            for item in value:
+                lines.append(f"- {key}: {item}")
+        elif value:
+            lines.append(f"- {key}: {value}")
+
+    lines.extend(["", "---", ""])
+    with open(HEARTBEAT_PATH, "a", encoding="utf-8") as heartbeat_file:
+        heartbeat_file.write("\n".join(lines))
 
 
 @router.get("")
@@ -118,7 +147,7 @@ async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTask
     properties = dict(task.get("properties", {}))
     properties["assigned_to"] = agent_name
     properties["priority"] = priority
-    properties["assigned_at"] = datetime.utcnow().isoformat()
+    properties["assigned_at"] = utc_now_iso()
     properties["current_action"] = "queued"
     properties["context_included"] = additional_context
 
@@ -132,6 +161,7 @@ async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTask
         )
         properties["status"] = "in-progress"
     else:
+        await _write_to_heartbeat(task_id, agent_name, task, context)
         memory_id = str(uuid.uuid4())
         heartbeat_content = f"{task.get('title', '')}\n\n{task.get('content', '')}"
         embedding = await embedding_service.embed_text(heartbeat_content)
@@ -149,7 +179,7 @@ async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTask
                     "related_objects": additional_context,
                     "related_tasks": [task_id],
                     "session_id": f"heartbeat:{task_id}",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": utc_now_iso(),
                 },
             }],
         )
@@ -166,8 +196,8 @@ async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTask
     return {
         "message": "Task assigned",
         "task_id": task_id,
-        "agent": agent_name,
-        "route": route,
+        "agent_name": agent_name,
+        "assignment_type": route,
         "context": context,
         "response": response,
     }
@@ -202,8 +232,8 @@ async def update_task_status(task_id: str, data: dict):
     if notes is not None:
         properties["notes"] = notes
     if status == "done":
-        properties["completed_at"] = datetime.utcnow().isoformat()
-    properties["updated_at"] = datetime.utcnow().isoformat()
+        properties["completed_at"] = utc_now_iso()
+    properties["updated_at"] = utc_now_iso()
     task["properties"] = properties
     await client.set_payload(collection_name="objects", payload=task, points=[task_id])
 
