@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
+from app.config import settings
 from app.database.qdrant_client import qdrant_manager
 from app.models.tasks import TaskListResponse
 from app.services.context_builder import context_builder
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 VALID_STATUSES = ["todo", "in-progress", "blocked", "review", "done"]
 VALID_PRIORITIES = ["low", "medium", "high", "urgent"]
-HEARTBEAT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "HEARTBEAT.md")
+HEARTBEAT_PATH = settings.heartbeat_path
 
 
 def _task_counts(tasks: list, key: str):
@@ -183,7 +184,12 @@ async def assign_task(task_id: str, data: dict, background_tasks: BackgroundTask
                 },
             }],
         )
-        response = {"status": "queued", "memory_id": memory_id}
+        response = {
+            "status": "queued",
+            "memory_id": memory_id,
+            "heartbeat_path": HEARTBEAT_PATH,
+            "message": "Task queued in HEARTBEAT.md",
+        }
         properties["status"] = "todo"
 
     task["properties"] = properties

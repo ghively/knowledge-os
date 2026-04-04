@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Folder, File, Search, Plus, RefreshCw, Loader2, FileText, Image, Code } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,10 +49,11 @@ function getFileColor(contentType?: string) {
 }
 
 export function FilesPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'indexed' | 'processing' | 'pending' | 'error'>('all')
   const [addFolderOpen, setAddFolderOpen] = useState(false)
   const [newFolderPath, setNewFolderPath] = useState('')
-  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
   const queryClient = useQueryClient()
 
   // Fetch files
@@ -61,6 +63,7 @@ export function FilesPage() {
     refetchInterval: 30000, // Poll every 30 seconds
   })
   const files = (filesData?.files ?? []) as FileItem[]
+  const selectedFile = files.find((file) => file.id === searchParams.get('file')) || null
 
   // Add folder mutation
   const addFolderMutation = useMutation({
@@ -81,10 +84,14 @@ export function FilesPage() {
     },
   })
 
-  const filteredFiles = files.filter((file: FileItem) =>
-    (file.filename || file.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    file.path.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredFiles = files.filter((file: FileItem) => {
+    const matchesSearch = (
+      (file.filename || file.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      file.path.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    const matchesStatus = statusFilter === 'all' || file.index_status === statusFilter
+    return matchesSearch && matchesStatus
+  })
 
   const handleAddFolder = () => {
     if (newFolderPath.trim()) {
@@ -148,6 +155,18 @@ export function FilesPage() {
             className="pl-9"
           />
         </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(['all', 'indexed', 'processing', 'pending', 'error'] as const).map((status) => (
+            <Button
+              key={status}
+              variant={statusFilter === status ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter(status)}
+            >
+              {status}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* File List */}
@@ -168,7 +187,7 @@ export function FilesPage() {
                   <div
                     key={file.id}
                     className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg cursor-pointer group"
-                    onClick={() => setSelectedFile(file)}
+                    onClick={() => setSearchParams({ file: file.id })}
                   >
                     <Icon className={cn("h-5 w-5", getFileColor(contentType))} />
                     <div className="flex-1 min-w-0">
@@ -250,7 +269,7 @@ export function FilesPage() {
       </Dialog>
 
       {/* File Details Dialog */}
-      <Dialog open={!!selectedFile} onOpenChange={() => setSelectedFile(null)}>
+      <Dialog open={!!selectedFile} onOpenChange={(open) => !open && setSearchParams({})}>
         <DialogContent className="max-w-2xl">
           {selectedFile && (
             <>
@@ -302,7 +321,10 @@ export function FilesPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setSelectedFile(null)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setSearchParams({})}
+                >
                   Close
                 </Button>
                 <Button 

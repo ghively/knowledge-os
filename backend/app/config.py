@@ -7,6 +7,7 @@ from typing import List
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 BACKUPS_DIR = BASE_DIR / "backups"
+HEARTBEAT_FILE = BASE_DIR / "HEARTBEAT.md"
 
 
 class Settings:
@@ -39,6 +40,7 @@ class Settings:
     
     # Backup settings
     backup_path: str = os.getenv("BACKUP_PATH", BACKUPS_DIR.as_posix())
+    heartbeat_path: str = os.getenv("HEARTBEAT_PATH", HEARTBEAT_FILE.as_posix())
     
     # CORS settings
     @property
