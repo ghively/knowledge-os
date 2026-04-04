@@ -145,14 +145,6 @@ export function OutlinerPage() {
         .map((block) => blocksApi.delete(block.id))
 
       await Promise.all([...updates, ...creates, ...deletes])
-      await blocksApi.batchUpdate(
-        nextBlocks.map((block, order) => ({
-          id: block.id,
-          order,
-          level: block.level ?? 0,
-          parent_id: null,
-        }))
-      )
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['blocks', id] })
