@@ -75,6 +75,20 @@ export function SearchPage() {
       case 'files':
         navigate(`/files?file=${result.id}`)
         break
+      case 'code':
+        if (typeof (result as SearchResult & { object_id?: string }).object_id === 'string') {
+          navigate(`/object/${(result as SearchResult & { object_id?: string }).object_id}`)
+          break
+        }
+        navigate(`/files?file=${result.id}`)
+        break
+      case 'images':
+        if (typeof (result as SearchResult & { source_file?: string }).source_file === 'string') {
+          navigate(`/files?file=${(result as SearchResult & { source_file?: string }).source_file}`)
+          break
+        }
+        navigate(`/files?file=${result.id}`)
+        break
       default:
         navigate(`/search?q=${encodeURIComponent(result.title || result.filename || result.id)}&type=${searchType}`)
         break

@@ -6,6 +6,7 @@ import { TaskAssignmentDialog } from '@/components/tasks/TaskAssignmentDialog'
 import { tasksApi, objectsApi, type TaskItem } from '@/services/api'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
+import { useNavigate } from 'react-router-dom'
 
 const priorityColors = {
   urgent: 'border-l-red-500 bg-red-50/50',
@@ -38,6 +39,7 @@ const statusColors: Record<string, string> = {
 }
 
 export function TasksPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<'all' | 'todo' | 'in-progress' | 'blocked' | 'review' | 'done'>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all')
@@ -295,7 +297,7 @@ export function TasksPage() {
               {!selectedTask.properties?.assigned_to && selectedTask.properties?.status !== 'done' && (
                 <Button onClick={() => handleAssignClick(selectedTask)}>Assign</Button>
               )}
-              <Button variant="outline" onClick={() => window.location.assign(`/object/${selectedTask.id}`)}>
+              <Button variant="outline" onClick={() => navigate(`/object/${selectedTask.id}`)}>
                 Open Note
               </Button>
             </div>
