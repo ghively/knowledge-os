@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -39,6 +39,9 @@ export function OutlinerPage() {
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
+  const [pendingBlocks, setPendingBlocks] = useState<BlockElement[] | null>(null)
+  const existingBlocksRef = useRef<BlockItem[]>([])
+  const hasLoadedBlocksRef = useRef(false)
 
   // Fetch object data
   const { data: objectData, isLoading: objectLoading } = useQuery({
@@ -60,6 +63,13 @@ export function OutlinerPage() {
   })
   const blocks = blocksData?.blocks ?? []
 
+  useEffect(() => {
+    existingBlocksRef.current = blocks
+    if (id) {
+      hasLoadedBlocksRef.current = true
+    }
+  }, [blocks, id])
+
   // Create object mutation
   const createObjectMutation = useMutation({
     mutationFn: objectsApi.create,
@@ -78,6 +88,77 @@ export function OutlinerPage() {
     },
   })
 
+  const saveBlocksMutation = useMutation({
+    mutationFn: async (nextBlocks: BlockElement[]) => {
+      if (!id) return
+
+      const existingBlocks = existingBlocksRef.current
+      const existingMap = new Map(existingBlocks.map((block) => [block.id, block]))
+      const nextIds = new Set(nextBlocks.map((block) => block.id))
+
+      const updates = nextBlocks.flatMap((block, order) => {
+        const existing = existingMap.get(block.id)
+        if (!existing) {
+          return []
+        }
+        const checked = Boolean((existing.properties as { checked?: boolean } | undefined)?.checked)
+        const nextChecked = block.type === 'todo' ? Boolean(block.checked) : false
+        const changed = (
+          existing.content !== (block.content ?? '') ||
+          existing.type !== block.type ||
+          existing.level !== (block.level ?? 0) ||
+          existing.order !== order ||
+          (existing.parent_id ?? null) !== null ||
+          checked !== nextChecked
+        )
+        if (!changed) {
+          return []
+        }
+        return [
+          blocksApi.update(block.id, {
+            content: block.content ?? '',
+            type: block.type,
+            level: block.level ?? 0,
+            order,
+            parent_id: null,
+            properties: block.type === 'todo' ? { checked: block.checked ?? false } : {},
+          })
+        ]
+      })
+
+      const creates = nextBlocks.flatMap((block, order) =>
+        existingMap.has(block.id) ? [] : [
+          blocksApi.create(id, {
+            id: block.id,
+            content: block.content ?? '',
+            type: block.type,
+            level: block.level ?? 0,
+            parent_id: null,
+            order,
+            properties: block.type === 'todo' ? { checked: block.checked ?? false } : {},
+          })
+        ]
+      )
+
+      const deletes = existingBlocks
+        .filter((block) => !nextIds.has(block.id))
+        .map((block) => blocksApi.delete(block.id))
+
+      await Promise.all([...updates, ...creates, ...deletes])
+      await blocksApi.batchUpdate(
+        nextBlocks.map((block, order) => ({
+          id: block.id,
+          order,
+          level: block.level ?? 0,
+          parent_id: null,
+        }))
+      )
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['blocks', id] })
+    },
+  })
+
   // Create block mutation
   // Handle title edit
   const handleTitleSave = useCallback(() => {
@@ -89,9 +170,23 @@ export function OutlinerPage() {
 
   // Handle blocks change
   const handleBlocksChange = useCallback((newBlocks: BlockElement[]) => {
-    // TODO: Implement batch save for blocks
-    console.log('Blocks changed:', newBlocks)
+    if (!hasLoadedBlocksRef.current) {
+      return
+    }
+    setPendingBlocks(newBlocks)
   }, [])
+
+  useEffect(() => {
+    if (!id || !pendingBlocks) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      saveBlocksMutation.mutate(pendingBlocks)
+    }, 400)
+
+    return () => window.clearTimeout(timer)
+  }, [id, pendingBlocks, saveBlocksMutation])
 
   // Create new page
   const handleCreatePage = useCallback(() => {
@@ -143,6 +238,16 @@ export function OutlinerPage() {
   const object = objectData as ObjectData
   const objectType = object?.type || 'page'
   const icon = object?.icon || (objectType === 'task' ? '✅' : objectType === 'agent' ? '🤖' : '📄')
+  const editorBlocks = useMemo(() => (
+    blocks.map((b: BlockItem) => ({
+      id: b.id,
+      type: (b.type as BlockElement['type']) || 'paragraph',
+      content: b.content,
+      level: b.level || 0,
+      checked: Boolean(b.properties?.checked),
+      children: [{ text: b.content }],
+    }))
+  ), [blocks])
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-6">
@@ -199,14 +304,7 @@ export function OutlinerPage() {
       {/* Outliner Editor */}
       <OutlinerEditor
         objectId={id}
-        initialBlocks={blocks.map((b: BlockItem) => ({
-          id: b.id,
-          type: (b.type as BlockElement['type']) || 'paragraph',
-          content: b.content,
-          level: b.level || 0,
-          checked: Boolean(b.properties?.checked),
-          children: [{ text: b.content }],
-        }))}
+        initialBlocks={editorBlocks}
         onChange={handleBlocksChange}
       />
 

@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useQuery } from '@tanstack/react-query'
-import { agentsApi, settingsApi, type AgentItem } from '@/services/api'
+import { agentsApi, objectsApi, settingsApi, type AgentItem, type ObjectItem } from '@/services/api'
 
 interface SidebarProps {
   collapsed: boolean
@@ -59,6 +59,11 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
     queryFn: settingsApi.getWatchedFolders,
   })
   const watchedFolders = watchedFoldersData?.folders ?? []
+  const { data: recentObjectsData, isLoading: objectsLoading } = useQuery({
+    queryKey: ['objects', { limit: 8 }],
+    queryFn: () => objectsApi.list({ limit: 8 }),
+  })
+  const recentObjects = recentObjectsData?.objects ?? []
 
   const getStatusColor = (status: AgentItem['status']) => {
     switch (status) {
@@ -207,6 +212,28 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
               </div>
             </CollapsibleContent>
           </Collapsible>
+
+          <div>
+            <div className="px-3 py-2 text-sm font-medium text-muted-foreground">
+              Recent Objects
+            </div>
+            <div className="space-y-1">
+              {objectsLoading ? (
+                <div className="text-sm text-muted-foreground px-3 py-2">Loading objects...</div>
+              ) : recentObjects.length === 0 ? (
+                <div className="text-sm text-muted-foreground px-3 py-2">No recent objects</div>
+              ) : (
+                recentObjects.map((object: ObjectItem) => (
+                  <Link key={object.id} to={`/object/${object.id}`}>
+                    <Button variant="ghost" className="w-full justify-start gap-2">
+                      <span>{object.icon || '📄'}</span>
+                      <span className="truncate">{object.title}</span>
+                    </Button>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
 
           {/* Watched Folders */}
           <Collapsible open={foldersOpen} onOpenChange={setFoldersOpen}>

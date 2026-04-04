@@ -13,7 +13,7 @@ const GLOBAL_WS_URL = (() => {
     return `${protocol}//${window.location.host}/ws/system`
   }
 
-  return 'ws://localhost:8000/ws/system'
+  return '/ws/system'
 })()
 
 interface UseWebSocketOptions {

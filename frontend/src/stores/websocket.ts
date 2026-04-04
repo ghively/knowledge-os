@@ -3,15 +3,15 @@ import { create } from 'zustand'
 const DEFAULT_WS_URL = (() => {
   const configuredApiUrl = import.meta.env.VITE_API_URL as string | undefined
   if (configuredApiUrl) {
-    return `${configuredApiUrl.replace(/^http/, 'ws')}/ws`
+    return `${configuredApiUrl.replace(/^http/, 'ws')}/ws/system`
   }
 
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}/ws`
+    return `${protocol}//${window.location.host}/ws/system`
   }
 
-  return 'ws://localhost:8000/ws'
+  return '/ws/system'
 })()
 
 interface WebSocketState {

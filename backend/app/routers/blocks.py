@@ -41,7 +41,7 @@ async def get_blocks_for_object(object_id: str, limit: int = Query(1000, ge=1, l
 async def create_block(block: BlockCreate):
     """Create a new block."""
     client = qdrant_manager.get_async_client()
-    block_id = str(uuid.uuid4())
+    block_id = block.id or str(uuid.uuid4())
     embedding = await embedding_service.embed_text(block.content)
 
     existing_blocks = await get_blocks_for_object(block.object_id)

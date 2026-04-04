@@ -155,6 +155,8 @@ export function SearchPage() {
               {results.map((result: SearchResult) => {
                 const resultType = result.collection === 'objects' ? 'object' : result.collection
                 const Icon = typeIcons[resultType] || FileText
+                const resultTitle = result.title || result.filename || result.id
+                const resultContent = result.content || result.context || ''
                 return (
                   <div
                     key={result.id}
@@ -165,13 +167,13 @@ export function SearchPage() {
                       <Icon className={cn("h-5 w-5 mt-0.5 flex-shrink-0", typeColors[resultType] || 'text-gray-500')} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="font-medium truncate">{result.title}</h3>
+                          <h3 className="font-medium truncate">{resultTitle}</h3>
                           <span className="text-xs text-muted-foreground">
                             {Math.round(result.score * 100)}% match
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                          {result.content}
+                          {resultContent}
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs px-2 py-0.5 bg-muted rounded-full capitalize">

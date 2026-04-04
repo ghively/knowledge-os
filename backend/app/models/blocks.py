@@ -32,6 +32,7 @@ class Block(BaseModel):
 
 class BlockCreate(BaseModel):
     """Block creation model"""
+    id: Optional[str] = None
     object_id: str
     type: str = "paragraph"
     content: str = ""
