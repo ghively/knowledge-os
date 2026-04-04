@@ -13,6 +13,8 @@ interface Agent extends AgentItem {
 }
 
 const statusColors = {
+  active: 'bg-blue-500',
+  busy: 'bg-blue-500',
   idle: 'bg-green-500',
   working: 'bg-blue-500',
   error: 'bg-red-500',
@@ -20,6 +22,8 @@ const statusColors = {
 }
 
 const statusText = {
+  active: 'Active',
+  busy: 'Busy',
   idle: 'Idle',
   working: 'Working',
   error: 'Error',
@@ -57,7 +61,7 @@ export function AgentsPage() {
     setSelectedAgent(null)
   }
 
-  const workingAgents = agents.filter((a: Agent) => a.status === 'working').length
+  const workingAgents = agents.filter((a: Agent) => ['active', 'busy', 'working'].includes(a.status)).length
   const idleAgents = agents.filter((a: Agent) => a.status === 'idle').length
   const offlineAgents = agents.filter((a: Agent) => a.status === 'offline').length
 

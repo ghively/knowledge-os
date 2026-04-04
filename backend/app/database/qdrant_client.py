@@ -194,7 +194,7 @@ class QdrantManager:
                     wait=True,
                 )
             except Exception as exc:
-                logger.debug("Payload index skipped for %s.%s: %s", name, field_name, exc)
+                logger.warning("Payload index skipped for %s.%s: %s", name, field_name, exc)
     
     async def close(self):
         """Close connections"""

@@ -55,8 +55,13 @@ class RelationService:
         context: str = "",
     ):
         client = qdrant_manager.get_async_client()
+        await self._assert_entity_exists(source_type, source_id)
+        await self._assert_entity_exists(target_type, target_id)
         relation_id = str(uuid.uuid4())
-        embedding = await embedding_service.embed_text(context or relation_type)
+        try:
+            embedding = await embedding_service.embed_text(context or relation_type)
+        except Exception:
+            embedding = await embedding_service.embed_text(relation_type)
         payload = {
             "id": relation_id,
             "source_id": source_id,
@@ -73,7 +78,7 @@ class RelationService:
         )
         return payload
 
-    async def sync_object_links(self, object_id: str, title: str, content: str):
+    async def sync_object_links(self, object_id: str, title: str = "", content: str = ""):
         client = qdrant_manager.get_async_client()
         existing = await self.list_relations_for_object(object_id)
         for relation in existing:
@@ -89,14 +94,15 @@ class RelationService:
                 with_payload=True,
                 with_vectors=False,
             )
-            if target[0]:
-                target_id = str(target[0][0].id)
-                await self.create_relation(
-                    source_id=object_id,
-                    target_id=target_id,
-                    relation_type="links_to",
-                    context=linked_title,
-                )
+            if not target[0]:
+                continue
+            target_id = str(target[0][0].id)
+            await self.create_relation(
+                source_id=object_id,
+                target_id=target_id,
+                relation_type="links_to",
+                context=linked_title,
+            )
 
     async def sync_block_references(self, block_id: str, object_id: str, content: str):
         client = qdrant_manager.get_async_client()
@@ -137,7 +143,7 @@ class RelationService:
                 if relation.get("target_id") not in new_references:
                     await self.delete_relation(relation["id"])
 
-        await self.sync_object_links(object_id, "", content)
+        await self.sync_object_links(object_id=object_id, content=content)
         return sorted(new_references), list(old_references - new_references)
 
     async def remove_block_references(self, block_id: str):
@@ -195,6 +201,18 @@ class RelationService:
     @staticmethod
     def extract_wiki_links(content: str) -> List[str]:
         return [title.strip() for title in WIKI_LINK_PATTERN.findall(content or "") if title.strip()]
+
+    async def _assert_entity_exists(self, entity_type: str, entity_id: str):
+        collection = "objects" if entity_type == "object" else "blocks"
+        client = qdrant_manager.get_async_client()
+        result = await client.retrieve(
+            collection_name=collection,
+            ids=[entity_id],
+            with_payload=False,
+            with_vectors=False,
+        )
+        if not result:
+            raise ValueError(f"{entity_type} target not found: {entity_id}")
 
 
 relation_service = RelationService()

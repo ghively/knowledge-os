@@ -14,14 +14,17 @@ logger = logging.getLogger(__name__)
 @router.post("")
 async def create_relation(relation: RelationCreate):
     """Create a relation between objects or blocks."""
-    return await relation_service.create_relation(
-        source_id=relation.source_id,
-        source_type=relation.source_type,
-        target_id=relation.target_id,
-        target_type=relation.target_type,
-        relation_type=relation.relation_type,
-        context=relation.context,
-    )
+    try:
+        return await relation_service.create_relation(
+            source_id=relation.source_id,
+            source_type=relation.source_type,
+            target_id=relation.target_id,
+            target_type=relation.target_type,
+            relation_type=relation.relation_type,
+            context=relation.context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/object/{object_id}", response_model=RelationListResponse)

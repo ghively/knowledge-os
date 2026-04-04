@@ -19,21 +19,12 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useQuery } from '@tanstack/react-query'
-import { agentsApi, settingsApi } from '@/services/api'
+import { agentsApi, settingsApi, type AgentItem } from '@/services/api'
 
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
-  onAgentClick?: (agent: Agent) => void
-}
-
-interface Agent {
-  id: string
-  name: string
-  description?: string
-  status: 'idle' | 'working' | 'error' | 'offline'
-  current_task?: string
-  last_seen?: string
+  onAgentClick?: (agent: AgentItem) => void
 }
 
 const spaces = [
@@ -69,10 +60,12 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
   })
   const watchedFolders = watchedFoldersData?.folders ?? []
 
-  const getStatusColor = (status: Agent['status']) => {
+  const getStatusColor = (status: AgentItem['status']) => {
     switch (status) {
-      case 'idle': return 'bg-green-500'
+      case 'active':
+      case 'busy':
       case 'working': return 'bg-blue-500 animate-pulse'
+      case 'idle': return 'bg-green-500'
       case 'error': return 'bg-red-500'
       case 'offline': return 'bg-gray-400'
       default: return 'bg-gray-400'
@@ -102,7 +95,7 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
 
         {/* Agent indicators */}
         <div className="mt-auto flex flex-col gap-2">
-          {agents.slice(0, 3).map((agent: Agent) => (
+          {agents.slice(0, 3).map((agent: AgentItem) => (
             <Button
               key={agent.id}
               variant="ghost"
@@ -194,7 +187,7 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
                 ) : agents.length === 0 ? (
                   <div className="text-sm text-muted-foreground px-3 py-2">No agents configured</div>
                 ) : (
-                  agents.map((agent: Agent) => (
+                  agents.map((agent: AgentItem) => (
                     <Button
                       key={agent.id}
                       variant="ghost"
