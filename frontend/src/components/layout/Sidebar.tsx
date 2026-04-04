@@ -55,17 +55,19 @@ export function Sidebar({ collapsed, onToggle, onAgentClick }: SidebarProps) {
   const [foldersOpen, setFoldersOpen] = useState(true)
 
   // Fetch agents
-  const { data: agents = [], isLoading: agentsLoading } = useQuery({
+  const { data: agentsData, isLoading: agentsLoading } = useQuery({
     queryKey: ['agents'],
     queryFn: agentsApi.list,
     refetchInterval: 10000, // Poll every 10 seconds for status updates
   })
+  const agents = agentsData?.agents ?? []
 
   // Fetch watched folders
-  const { data: watchedFolders = [], isLoading: foldersLoading } = useQuery({
+  const { data: watchedFoldersData, isLoading: foldersLoading } = useQuery({
     queryKey: ['watched-folders'],
     queryFn: settingsApi.getWatchedFolders,
   })
+  const watchedFolders = watchedFoldersData?.folders ?? []
 
   const getStatusColor = (status: Agent['status']) => {
     switch (status) {

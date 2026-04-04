@@ -2,6 +2,20 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
+const GLOBAL_WS_URL = (() => {
+  const configuredApiUrl = import.meta.env.VITE_API_URL as string | undefined
+  if (configuredApiUrl) {
+    return `${configuredApiUrl.replace(/^http/, 'ws')}/ws/system`
+  }
+
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}/ws/system`
+  }
+
+  return 'ws://localhost:8000/ws/system'
+})()
+
 interface UseWebSocketOptions {
   onOpen?: () => void
   onClose?: () => void
@@ -29,7 +43,7 @@ export function useWebSocket(
   
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectCountRef = useRef(0)
-  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isManualCloseRef = useRef(false)
 
   const connect = useCallback(() => {
@@ -128,9 +142,7 @@ export function useWebSocket(
 
 // Hook for global WebSocket connection (for system-wide updates)
 export function useGlobalWebSocket() {
-  const { connectionStatus, lastMessage, sendMessage } = useWebSocket(
-    'ws://localhost:8000/ws/system'
-  )
+  const { connectionStatus, lastMessage, sendMessage } = useWebSocket(GLOBAL_WS_URL)
 
   return {
     connectionStatus,

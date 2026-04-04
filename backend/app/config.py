@@ -1,10 +1,20 @@
 """Application Configuration"""
 import os
+from pathlib import Path
 from typing import List
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = BASE_DIR / "data"
+BACKUPS_DIR = BASE_DIR / "backups"
 
 
 class Settings:
     """Application settings"""
+
+    # Server settings
+    host: str = os.getenv("HOST", "0.0.0.0")
+    port: int = int(os.getenv("PORT", "8000"))
     
     # Qdrant settings
     qdrant_host: str = os.getenv("QDRANT_HOST", "localhost")
@@ -12,14 +22,23 @@ class Settings:
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     
     # SQLite settings
-    database_url: str = os.getenv("DATABASE_URL", "sqlite:///app/data/knowledge_os.db")
+    database_url: str = os.getenv(
+        "DATABASE_URL",
+        f"sqlite:///{(DATA_DIR / 'knowledge_os.db').as_posix()}",
+    )
     
     # OpenClaw settings
-    openclaw_url: str = os.getenv("OPENCLAW_URL", "http://localhost:18789")
-    openclaw_token: str = os.getenv("OPENCLAW_TOKEN", "")
+    openclaw_url: str = os.getenv(
+        "OPENCLAW_URL",
+        os.getenv("OPENCLAW_GATEWAY_URL", "http://localhost:18789"),
+    )
+    openclaw_token: str = os.getenv(
+        "OPENCLAW_TOKEN",
+        os.getenv("OPENCLAW_GATEWAY_TOKEN", ""),
+    )
     
     # Backup settings
-    backup_path: str = os.getenv("BACKUP_PATH", "/app/backups")
+    backup_path: str = os.getenv("BACKUP_PATH", BACKUPS_DIR.as_posix())
     
     # CORS settings
     @property
@@ -32,7 +51,10 @@ class Settings:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     
     # File watching
-    watched_folders_path: str = os.getenv("WATCHED_FOLDERS_PATH", "/app/data/watched_folders.json")
+    watched_folders_path: str = os.getenv(
+        "WATCHED_FOLDERS_PATH",
+        f"{(DATA_DIR / 'watched_folders.json').as_posix()}",
+    )
     
     # Git settings
     git_repo_url: str = os.getenv("GIT_REPO_URL", "")

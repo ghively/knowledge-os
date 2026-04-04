@@ -3,12 +3,9 @@ import logging
 
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.models import (
-    Distance, VectorParams, PayloadSchemaType,
-    CreateCollection, OptimizersConfig
+    Distance, VectorParams, PayloadSchemaType
 )
-from typing import List, Optional, Dict, Any
-import uuid
-import asyncio
+from typing import Optional, Dict, Any
 
 from app.config import settings
 
@@ -74,7 +71,7 @@ class QdrantManager:
             host=settings.qdrant_host,
             port=settings.qdrant_port,
             api_key=settings.qdrant_api_key or None,
-            prefer_grpc=True
+            prefer_grpc=False
         )
         
         # Async client for async operations
@@ -82,7 +79,7 @@ class QdrantManager:
             host=settings.qdrant_host,
             port=settings.qdrant_port,
             api_key=settings.qdrant_api_key or None,
-            prefer_grpc=True
+            prefer_grpc=False
         )
         
         # Create collections if they don't exist
@@ -107,9 +104,6 @@ class QdrantManager:
                     vectors_config=VectorParams(
                         size=config["vector_size"],
                         distance=config["distance"]
-                    ),
-                    optimizers_config=OptimizersConfig(
-                        indexing_threshold=100
                     ),
                     on_disk_payload=config.get("on_disk_payload", False)
                 )

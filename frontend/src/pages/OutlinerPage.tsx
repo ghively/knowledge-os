@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -11,23 +11,9 @@ import {
   User
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { OutlinerEditor } from '@/components/outliner/OutlinerEditor'
-import { objectsApi, blocksApi } from '@/services/api'
+import { OutlinerEditor, type BlockElement } from '@/components/outliner/OutlinerEditor'
+import { objectsApi, blocksApi, type BlockItem } from '@/services/api'
 import { cn } from '@/lib/utils'
-
-interface Block {
-  id: string
-  type: string
-  content: string
-  level?: number
-  properties?: {
-    checked?: boolean
-    assigned_to?: string
-    due_date?: string
-    priority?: string
-  }
-  order: number
-}
 
 interface ObjectData {
   id: string
@@ -62,11 +48,17 @@ export function OutlinerPage() {
   })
 
   // Fetch blocks
-  const { data: blocks = [], isLoading: blocksLoading } = useQuery({
+  const { data: blocksData, isLoading: blocksLoading } = useQuery({
     queryKey: ['blocks', id],
-    queryFn: () => id ? blocksApi.getForObject(id) : Promise.resolve([]),
+    queryFn: () => {
+      if (!id) {
+        return Promise.resolve({ blocks: [] as BlockItem[] })
+      }
+      return blocksApi.getForObject(id)
+    },
     enabled: !!id,
   })
+  const blocks = blocksData?.blocks ?? []
 
   // Create object mutation
   const createObjectMutation = useMutation({
@@ -87,14 +79,6 @@ export function OutlinerPage() {
   })
 
   // Create block mutation
-  const createBlockMutation = useMutation({
-    mutationFn: ({ objectId, data }: { objectId: string; data: any }) =>
-      blocksApi.create(objectId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['blocks', id] })
-    },
-  })
-
   // Handle title edit
   const handleTitleSave = useCallback(() => {
     if (id && editedTitle !== objectData?.title) {
@@ -104,7 +88,7 @@ export function OutlinerPage() {
   }, [id, editedTitle, objectData?.title, updateObjectMutation])
 
   // Handle blocks change
-  const handleBlocksChange = useCallback((newBlocks: Block[]) => {
+  const handleBlocksChange = useCallback((newBlocks: BlockElement[]) => {
     // TODO: Implement batch save for blocks
     console.log('Blocks changed:', newBlocks)
   }, [])
@@ -215,12 +199,12 @@ export function OutlinerPage() {
       {/* Outliner Editor */}
       <OutlinerEditor
         objectId={id}
-        initialBlocks={blocks.map((b: Block) => ({
+        initialBlocks={blocks.map((b: BlockItem) => ({
           id: b.id,
-          type: b.type as any,
+          type: (b.type as BlockElement['type']) || 'paragraph',
           content: b.content,
           level: b.level || 0,
-          checked: b.properties?.checked,
+          checked: Boolean(b.properties?.checked),
           children: [{ text: b.content }],
         }))}
         onChange={handleBlocksChange}

@@ -87,7 +87,7 @@ async def create_object(obj: ObjectCreate):
     embedding = await embedding_service.embed_text(content)
     
     # Build payload
-    properties = obj.properties or {}
+    properties = obj.properties.model_dump() if obj.properties else {}
     properties["created_at"] = datetime.now().isoformat()
     properties["updated_at"] = datetime.now().isoformat()
     
@@ -97,7 +97,7 @@ async def create_object(obj: ObjectCreate):
         "title": obj.title,
         "icon": obj.icon,
         "content": content,
-        "properties": properties.dict() if properties else {},
+        "properties": properties,
         "layout": obj.layout or "default"
     }
     
@@ -154,7 +154,7 @@ async def update_object(object_id: str, update: ObjectUpdate):
         changes.append("content")
     
     if update.properties is not None:
-        payload["properties"] = update.properties.dict()
+        payload["properties"] = update.properties.model_dump()
         changes.append("properties")
     
     if update.layout is not None:

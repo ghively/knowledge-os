@@ -1,20 +1,13 @@
 import { useState } from 'react'
-import { Bot, MessageSquare, Activity, Settings, Loader2, RefreshCw, Play, Pause } from 'lucide-react'
+import { Bot, MessageSquare, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { agentsApi } from '@/services/api'
+import { agentsApi, type AgentItem } from '@/services/api'
 import { AgentChatPanel } from '@/components/agents/AgentChatPanel'
 import { cn } from '@/lib/utils'
 
-interface Agent {
-  id: string
-  name: string
-  description?: string
-  status: 'idle' | 'working' | 'error' | 'offline'
-  current_task?: string
+interface Agent extends AgentItem {
   last_seen?: string
-  capabilities?: string[]
   total_tasks?: number
   completed_tasks?: number
 }
@@ -39,11 +32,12 @@ export function AgentsPage() {
   const queryClient = useQueryClient()
 
   // Fetch agents
-  const { data: agents = [], isLoading, error } = useQuery({
+  const { data: agentsData, isLoading, error } = useQuery({
     queryKey: ['agents'],
     queryFn: agentsApi.list,
     refetchInterval: 5000, // Poll every 5 seconds for status updates
   })
+  const agents = (agentsData?.agents ?? []) as Agent[]
 
   // Refresh agents mutation
   const refreshMutation = useMutation({
@@ -154,8 +148,8 @@ export function AgentsPage() {
                       <div>
                         <h3 className="font-medium">@{agent.name}</h3>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className={cn("h-2 w-2 rounded-full", statusColors[agent.status])} />
-                          <span className="capitalize">{statusText[agent.status]}</span>
+                          <span className={cn("h-2 w-2 rounded-full", statusColors[agent.status as keyof typeof statusColors])} />
+                          <span className="capitalize">{statusText[agent.status as keyof typeof statusText]}</span>
                           {agent.last_seen && (
                             <>
                               <span>•</span>
@@ -188,7 +182,7 @@ export function AgentsPage() {
                     <div className="mt-3">
                       <div className="text-sm text-muted-foreground mb-2">Capabilities</div>
                       <div className="flex flex-wrap gap-2">
-                        {agent.capabilities.map((cap) => (
+                        {agent.capabilities.map((cap: string) => (
                           <span
                             key={cap}
                             className="text-xs px-2 py-1 bg-muted rounded-full"
