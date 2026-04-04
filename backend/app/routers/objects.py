@@ -1,7 +1,6 @@
 """Objects Router - CRUD operations for objects."""
 import logging
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +10,7 @@ from app.models.objects import ObjectCreate, ObjectListResponse, ObjectUpdate
 from app.services.embedding import embedding_service
 from app.services.relations import relation_service
 from app.services.websocket_manager import WebSocketEvents, websocket_manager
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,8 +21,8 @@ def _merge_properties(existing: dict, incoming: Optional[dict]) -> dict:
     if incoming:
         for key, value in incoming.items():
             merged[key] = value
-    merged["updated_at"] = datetime.utcnow().isoformat()
-    merged.setdefault("created_at", datetime.utcnow().isoformat())
+    merged["updated_at"] = utc_now_iso()
+    merged.setdefault("created_at", utc_now_iso())
     return merged
 
 

@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Set, Dict, List
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from app.utils.time import utc_now_iso
 
 import aiohttp
 from watchdog.observers import Observer
@@ -114,7 +114,7 @@ class FileChangeHandler(FileSystemEventHandler):
             'event_type': event_type,
             'path': src_path,
             'folder_id': self.folder_config.id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utc_now_iso(),
         }
         if dest_path:
             event['dest_path'] = dest_path

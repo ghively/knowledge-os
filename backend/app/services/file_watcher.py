@@ -6,7 +6,7 @@ import logging
 import mimetypes
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -17,6 +17,7 @@ from app.database.qdrant_client import qdrant_manager
 from app.database.sqlite import sqlite_manager
 from app.services.embedding import embedding_service
 from app.services.websocket_manager import WebSocketEvents, websocket_manager
+from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ class FileWatcherService:
                 object_id = excluded.object_id,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (file_path, checksum, datetime.fromtimestamp(stat.st_mtime).isoformat(), index_status, error_message, object_id),
+            (file_path, checksum, datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(), index_status, error_message, object_id),
         )
 
         if folder_id:
@@ -234,8 +235,8 @@ class FileWatcherService:
             "content_text": content_text,
             "content_preview": content_text[:1000],
             "checksum": checksum,
-            "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "last_indexed": datetime.utcnow().isoformat(),
+            "last_modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            "last_indexed": utc_now_iso(),
             "index_status": "indexed",
             "error_message": None,
             "metadata": {"title": Path(file_path).stem, "word_count": len(content_text.split()) if content_text else 0},
@@ -260,8 +261,8 @@ class FileWatcherService:
                         "file_type": mime_type,
                         "checksum": checksum,
                         "is_watched": True,
-                        "created_at": datetime.utcnow().isoformat(),
-                        "updated_at": datetime.utcnow().isoformat(),
+                        "created_at": utc_now_iso(),
+                        "updated_at": utc_now_iso(),
                     },
                 },
             }],

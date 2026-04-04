@@ -1,7 +1,6 @@
 """Agents Router - Agent management and chat."""
 import logging
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +10,7 @@ from app.database.sqlite import sqlite_manager
 from app.services.embedding import embedding_service
 from app.services.openclaw import openclaw_service
 from app.services.websocket_manager import WebSocketEvents, websocket_manager
+from app.utils.time import utc_now_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ async def _ensure_agent_objects():
                         "agent_name": agent["name"],
                         "capabilities": agent["capabilities"],
                         "agent_status": "idle",
-                        "last_seen": datetime.utcnow().isoformat(),
+                        "last_seen": utc_now_iso(),
                     },
                 },
             }],
@@ -123,7 +123,7 @@ async def chat_with_agent(name: str, data: dict):
                 "agent_name": name,
                 "message_type": "user",
                 "content": content,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "related_task": related_task,
                 "metadata": {},
             },
@@ -145,7 +145,7 @@ async def chat_with_agent(name: str, data: dict):
                 "agent_name": name,
                 "message_type": "agent",
                 "content": agent_content,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now_iso(),
                 "related_task": related_task,
                 "metadata": response.get("metadata", {}),
             },

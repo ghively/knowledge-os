@@ -40,7 +40,6 @@ export function OutlinerPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
   const [pendingBlocks, setPendingBlocks] = useState<BlockElement[] | null>(null)
-  const existingBlocksRef = useRef<BlockItem[]>([])
   const hasLoadedBlocksRef = useRef(false)
 
   // Fetch object data
@@ -64,7 +63,6 @@ export function OutlinerPage() {
   const blocks = blocksData?.blocks ?? []
 
   useEffect(() => {
-    existingBlocksRef.current = blocks
     if (id) {
       hasLoadedBlocksRef.current = true
     }
@@ -91,60 +89,15 @@ export function OutlinerPage() {
   const saveBlocksMutation = useMutation({
     mutationFn: async (nextBlocks: BlockElement[]) => {
       if (!id) return
-
-      const existingBlocks = existingBlocksRef.current
-      const existingMap = new Map(existingBlocks.map((block) => [block.id, block]))
-      const nextIds = new Set(nextBlocks.map((block) => block.id))
-
-      const updates = nextBlocks.flatMap((block, order) => {
-        const existing = existingMap.get(block.id)
-        if (!existing) {
-          return []
-        }
-        const checked = Boolean((existing.properties as { checked?: boolean } | undefined)?.checked)
-        const nextChecked = block.type === 'todo' ? Boolean(block.checked) : false
-        const changed = (
-          existing.content !== (block.content ?? '') ||
-          existing.type !== block.type ||
-          existing.level !== (block.level ?? 0) ||
-          existing.order !== order ||
-          (existing.parent_id ?? null) !== null ||
-          checked !== nextChecked
-        )
-        if (!changed) {
-          return []
-        }
-        return [
-          blocksApi.update(block.id, {
-            content: block.content ?? '',
-            type: block.type,
-            level: block.level ?? 0,
-            order,
-            parent_id: null,
-            properties: block.type === 'todo' ? { checked: block.checked ?? false } : {},
-          })
-        ]
-      })
-
-      const creates = nextBlocks.flatMap((block, order) =>
-        existingMap.has(block.id) ? [] : [
-          blocksApi.create(id, {
-            id: block.id,
-            content: block.content ?? '',
-            type: block.type,
-            level: block.level ?? 0,
-            parent_id: null,
-            order,
-            properties: block.type === 'todo' ? { checked: block.checked ?? false } : {},
-          })
-        ]
-      )
-
-      const deletes = existingBlocks
-        .filter((block) => !nextIds.has(block.id))
-        .map((block) => blocksApi.delete(block.id))
-
-      await Promise.all([...updates, ...creates, ...deletes])
+      await blocksApi.syncForObject(id, nextBlocks.map((block, order) => ({
+        id: block.id,
+        content: block.content ?? '',
+        type: block.type,
+        level: block.level ?? 0,
+        order,
+        parent_id: null,
+        properties: block.type === 'todo' ? { checked: block.checked ?? false } : {},
+      })))
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['blocks', id] })

@@ -1,16 +1,16 @@
 """Backup Service - Handles all backup operations"""
 import os
-import json
-import shutil
+import uuid
 import subprocess
 import logging
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 import httpx
 
 from app.config import settings
 from app.database.qdrant_client import qdrant_manager
+from app.database.sqlite import sqlite_manager
+from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +35,35 @@ class BackupService:
     
     async def run_backup(self, backup_type: str):
         """Run a backup of the specified type"""
+        backup_id = str(uuid.uuid4())
+        await sqlite_manager.execute(
+            """
+            INSERT INTO backup_log (id, type, status, details, started_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (backup_id, backup_type, "running", "", utc_now_iso()),
+        )
         if backup_type == "snapshot":
-            await self._create_qdrant_snapshot()
+            details = await self._create_qdrant_snapshot()
         elif backup_type == "markdown":
-            await self._export_markdown()
+            details = await self._export_markdown()
         elif backup_type == "git":
-            await self._git_sync()
+            details = await self._git_sync()
+        else:
+            details = "Unsupported backup type"
+        await sqlite_manager.execute(
+            """
+            UPDATE backup_log
+            SET status = ?, details = ?, completed_at = ?
+            WHERE id = ?
+            """,
+            ("completed", details or "", utc_now_iso(), backup_id),
+        )
     
     async def _create_qdrant_snapshot(self):
         """Create a Qdrant snapshot"""
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             snapshot_dir = os.path.join(self.backup_path, "snapshots")
             os.makedirs(snapshot_dir, exist_ok=True)
             
@@ -59,16 +77,19 @@ class BackupService:
                 
                 if response.status_code == 200:
                     logger.info(f"Qdrant snapshot created: {timestamp}")
+                    return f"snapshot:{timestamp}"
                 else:
                     logger.warning(f"Qdrant snapshot failed: {response.text}")
-                    
+                    return response.text
+
         except Exception as e:
             logger.error(f"Error creating Qdrant snapshot: {e}")
+            return str(e)
     
     async def _export_markdown(self):
         """Export all objects to markdown files"""
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             export_dir = os.path.join(self.backup_path, "markdown", timestamp)
             os.makedirs(export_dir, exist_ok=True)
             
@@ -94,22 +115,28 @@ class BackupService:
                     filename = f"{result.id}.md"
                     filepath = os.path.join(collection_dir, filename)
                     
-                    with open(filepath, "w") as f:
-                        f.write(f"# {title}\n\n")
-                        f.write(content or "")
-            
+                    with open(filepath, "w", encoding="utf-8") as file_handle:
+                        file_handle.write("---\n")
+                        file_handle.write(f"id: {result.id}\n")
+                        file_handle.write(f"collection: {collection}\n")
+                        file_handle.write("---\n\n")
+                        file_handle.write(f"# {title}\n\n")
+                        file_handle.write(content or "")
+
             logger.info(f"Markdown export completed: {export_dir}")
-            
+            return export_dir
+
         except Exception as e:
             logger.error(f"Error exporting markdown: {e}")
+            return str(e)
     
     async def _git_sync(self):
         """Sync to Git repository"""
         try:
-            git_repo = settings.git_repo_url
+            git_repo = await sqlite_manager.get_setting("git_repo_url", settings.git_repo_url)
             if not git_repo:
                 logger.warning("No Git repository configured")
-                return
+                return "No Git repository configured"
             
             git_dir = os.path.join(self.backup_path, "git")
             os.makedirs(git_dir, exist_ok=True)
@@ -127,7 +154,7 @@ class BackupService:
                 check=True
             )
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             export_subdir = os.path.join(git_dir, "exports", timestamp)
             
             await self._export_markdown_to_dir(export_subdir)
@@ -147,11 +174,13 @@ class BackupService:
                 cwd=git_dir,
                 check=True
             )
-            
+
             logger.info("Git sync completed")
-            
+            return f"git:{timestamp}"
+
         except Exception as e:
             logger.error(f"Error syncing to Git: {e}")
+            return str(e)
     
     async def _export_markdown_to_dir(self, export_dir: str):
         """Export markdown to a specific directory"""
@@ -179,9 +208,13 @@ class BackupService:
                 filename = f"{result.id}.md"
                 filepath = os.path.join(collection_dir, filename)
                 
-                with open(filepath, "w") as f:
-                    f.write(f"# {title}\n\n")
-                    f.write(content or "")
+                with open(filepath, "w", encoding="utf-8") as file_handle:
+                    file_handle.write("---\n")
+                    file_handle.write(f"id: {result.id}\n")
+                    file_handle.write(f"collection: {collection}\n")
+                    file_handle.write("---\n\n")
+                    file_handle.write(f"# {title}\n\n")
+                    file_handle.write(content or "")
 
 
 # Global backup service instance
