@@ -59,11 +59,13 @@ export interface FileItem {
   name?: string
   filename?: string
   path: string
+  file_type?: string
   content_type?: string
   mime_type?: string
   indexed?: boolean
   indexed_at?: string
   last_indexed?: string
+  last_modified?: string
   hash?: string
   checksum?: string
   size_bytes?: number
