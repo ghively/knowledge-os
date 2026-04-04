@@ -108,27 +108,93 @@ class QdrantManager:
                     on_disk_payload=config.get("on_disk_payload", False)
                 )
                 
-                # Create payload indexes for common fields
-                if name in ["objects", "blocks"]:
-                    try:
-                        self.client.create_payload_index(
-                            collection_name=name,
-                            field_name="type",
-                            field_schema=PayloadSchemaType.KEYWORD
-                        )
-                        self.client.create_payload_index(
-                            collection_name=name,
-                            field_name="properties.tags",
-                            field_schema=PayloadSchemaType.KEYWORD
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not create index: {e}")
-                
                 logger.info(f"Created collection: {name}")
+
+            await self._ensure_payload_indexes(name)
             
         except Exception as e:
             logger.error(f"Error ensuring collection {name}: {e}")
             raise
+
+    async def _ensure_payload_indexes(self, name: str):
+        """Ensure required payload indexes exist for a collection."""
+        index_map = {
+            "objects": {
+                "type": PayloadSchemaType.KEYWORD,
+                "title": PayloadSchemaType.TEXT,
+                "properties.tags": PayloadSchemaType.KEYWORD,
+                "properties.status": PayloadSchemaType.KEYWORD,
+                "properties.priority": PayloadSchemaType.KEYWORD,
+                "properties.assigned_to": PayloadSchemaType.KEYWORD,
+                "properties.agent_name": PayloadSchemaType.KEYWORD,
+                "properties.agent_status": PayloadSchemaType.KEYWORD,
+            },
+            "blocks": {
+                "object_id": PayloadSchemaType.KEYWORD,
+                "type": PayloadSchemaType.KEYWORD,
+                "parent_id": PayloadSchemaType.KEYWORD,
+                "references": PayloadSchemaType.KEYWORD,
+                "referenced_by": PayloadSchemaType.KEYWORD,
+                "content": PayloadSchemaType.TEXT,
+            },
+            "relations": {
+                "source_id": PayloadSchemaType.KEYWORD,
+                "target_id": PayloadSchemaType.KEYWORD,
+                "relation_type": PayloadSchemaType.KEYWORD,
+                "source_type": PayloadSchemaType.KEYWORD,
+                "target_type": PayloadSchemaType.KEYWORD,
+                "context": PayloadSchemaType.TEXT,
+            },
+            "files": {
+                "object_id": PayloadSchemaType.KEYWORD,
+                "path": PayloadSchemaType.KEYWORD,
+                "filename": PayloadSchemaType.KEYWORD,
+                "extension": PayloadSchemaType.KEYWORD,
+                "mime_type": PayloadSchemaType.KEYWORD,
+                "index_status": PayloadSchemaType.KEYWORD,
+                "content_text": PayloadSchemaType.TEXT,
+            },
+            "images": {
+                "object_id": PayloadSchemaType.KEYWORD,
+                "path": PayloadSchemaType.KEYWORD,
+                "filename": PayloadSchemaType.KEYWORD,
+                "tags": PayloadSchemaType.KEYWORD,
+            },
+            "code": {
+                "file_id": PayloadSchemaType.KEYWORD,
+                "object_id": PayloadSchemaType.KEYWORD,
+                "file_path": PayloadSchemaType.KEYWORD,
+                "language": PayloadSchemaType.KEYWORD,
+                "type": PayloadSchemaType.KEYWORD,
+                "name": PayloadSchemaType.KEYWORD,
+                "content": PayloadSchemaType.TEXT,
+            },
+            "agent_memories": {
+                "agent_name": PayloadSchemaType.KEYWORD,
+                "memory_type": PayloadSchemaType.KEYWORD,
+                "related_objects": PayloadSchemaType.KEYWORD,
+                "related_tasks": PayloadSchemaType.KEYWORD,
+                "content": PayloadSchemaType.TEXT,
+            },
+            "chat_logs": {
+                "session_id": PayloadSchemaType.KEYWORD,
+                "agent_name": PayloadSchemaType.KEYWORD,
+                "message_type": PayloadSchemaType.KEYWORD,
+                "related_task": PayloadSchemaType.KEYWORD,
+                "content": PayloadSchemaType.TEXT,
+            },
+        }
+
+        for field_name, field_schema in index_map.get(name, {}).items():
+            try:
+                self.client.create_payload_index(
+                    collection_name=name,
+                    field_name=field_name,
+                    field_schema=field_schema,
+                    wait=True,
+                )
+            except Exception as exc:
+                logger.debug("Payload index skipped for %s.%s: %s", name, field_name, exc)
     
     async def close(self):
         """Close connections"""

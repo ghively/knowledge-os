@@ -1,8 +1,8 @@
-"""Search Router - Semantic and exact search"""
+"""Search Router - Semantic and exact search."""
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
 
 from app.database.qdrant_client import qdrant_manager
 from app.services.embedding import embedding_service
@@ -10,75 +10,69 @@ from app.services.embedding import embedding_service
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+SEARCH_COLLECTIONS = ["objects", "blocks", "relations", "files", "images", "code", "agent_memories", "chat_logs"]
+TEXT_FIELDS = ["title", "content", "context", "content_text", "content_preview", "description", "name"]
+
+
+def _match_exact(payload: dict, query: str) -> bool:
+    lowered = query.lower()
+    for field in TEXT_FIELDS:
+        value = payload.get(field)
+        if isinstance(value, str) and lowered in value.lower():
+            return True
+    return False
+
 
 @router.get("")
 async def search(
     q: str,
-    type: str = Query("semantic", regex="^(semantic|exact)$"),
+    exact: bool = False,
     collection: Optional[str] = None,
-    limit: int = Query(20, ge=1, le=100)
+    limit: int = Query(10, ge=1, le=100),
 ):
-    """Search across all content"""
-    client = qdrant_manager.get_async_client()
-    
+    """Search across configured collections."""
     if not q.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    
+
+    client = qdrant_manager.get_async_client()
+    collections = [collection] if collection else SEARCH_COLLECTIONS
     results = []
-    
-    # Determine which collections to search
-    collections = [collection] if collection else ["objects", "blocks", "files", "chat_logs"]
-    
+
+    query_embedding = None if exact else await embedding_service.embed_text(q)
     for coll in collections:
         try:
-            if type == "semantic":
-                # Generate embedding for query
-                query_embedding = await embedding_service.embed_text(q)
-                
-                # Search using async client
+            if exact:
+                scroll = await client.scroll(
+                    collection_name=coll,
+                    limit=max(limit * 5, 50),
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in scroll[0]:
+                    payload = dict(point.payload or {})
+                    if _match_exact(payload, q):
+                        payload["id"] = str(point.id)
+                        payload["score"] = 1.0
+                        payload["collection"] = coll
+                        results.append(payload)
+            else:
                 search_results = await client.search(
                     collection_name=coll,
                     query_vector=query_embedding.tolist(),
                     limit=limit,
                     with_payload=True,
-                    with_vectors=False
+                    with_vectors=False,
                 )
-                
-                for result in search_results:
-                    payload = result.payload
-                    payload["id"] = result.id
-                    payload["score"] = result.score
+                for point in search_results:
+                    payload = dict(point.payload or {})
+                    payload["id"] = str(point.id)
+                    payload["score"] = point.score
                     payload["collection"] = coll
                     results.append(payload)
-                    
-            else:
-                # Exact match search
-                scroll_results = await client.scroll(
-                    collection_name=coll,
-                    scroll_filter={
-                        "must": [
-                            {"key": "content", "match": {"text": q}}
-                        ]
-                    },
-                    limit=limit,
-                    with_payload=True,
-                    with_vectors=False
-                )
-                
-                for result in scroll_results[0]:
-                    payload = result.payload
-                    payload["id"] = result.id
-                    payload["score"] = 1.0  # Exact match
-                    payload["collection"] = coll
-                    results.append(payload)
-                    
-        except Exception as e:
-            logger.warning(f"Error searching collection {coll}: {e}")
-            continue
-    
-    # Sort by score (descending)
-    results.sort(key=lambda x: x.get("score", 0), reverse=True)
-    
+        except Exception as exc:
+            logger.warning("Search skipped for %s: %s", coll, exc)
+
+    results.sort(key=lambda item: item.get("score", 0), reverse=True)
     return {"results": results[:limit]}
 
 
@@ -86,42 +80,36 @@ async def search(
 async def find_similar(
     object_id: str,
     collection: Optional[str] = None,
-    limit: int = Query(10, ge=1, le=50)
+    limit: int = Query(10, ge=1, le=50),
 ):
-    """Find similar objects"""
+    """Find similar entries for a given object."""
     client = qdrant_manager.get_async_client()
-    
-    # Get source object
     source_collection = collection or "objects"
-    
     source = await client.retrieve(
         collection_name=source_collection,
         ids=[object_id],
         with_payload=True,
-        with_vectors=True
+        with_vectors=True,
     )
-    
     if not source:
         raise HTTPException(status_code=404, detail="Object not found")
-    
+
     source_vector = source[0].vector
-    
-    # Search for similar vectors
-    results = await client.search(
+    search_results = await client.search(
         collection_name=source_collection,
         query_vector=source_vector,
-        limit=limit + 1,  # +1 to exclude self
+        limit=limit + 1,
         with_payload=True,
-        with_vectors=False
+        with_vectors=False,
     )
-    
-    # Filter out the source object
+
     similar = []
-    for result in results:
-        if result.id != object_id:
-            payload = result.payload
-            payload["id"] = result.id
-            payload["score"] = result.score
-            similar.append(payload)
-    
+    for point in search_results:
+        if str(point.id) == object_id:
+            continue
+        payload = dict(point.payload or {})
+        payload["id"] = str(point.id)
+        payload["score"] = point.score
+        payload["collection"] = source_collection
+        similar.append(payload)
     return {"results": similar[:limit]}

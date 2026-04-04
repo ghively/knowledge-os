@@ -18,6 +18,24 @@ class ObjectProperties(BaseModel):
     notes: Optional[str] = None
     parent_id: Optional[str] = None
     linked_objects: List[str] = Field(default_factory=list)
+    context_included: List[str] = Field(default_factory=list)
+    created_by: Optional[str] = None
+    due_date: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    role: Optional[str] = None
+    author: Optional[str] = None
+    rating: Optional[int] = None
+    file_path: Optional[str] = None
+    file_size: Optional[int] = None
+    file_type: Optional[str] = None
+    checksum: Optional[str] = None
+    is_watched: Optional[bool] = None
+    agent_name: Optional[str] = None
+    capabilities: List[str] = Field(default_factory=list)
+    agent_status: Optional[str] = None
+    last_seen: Optional[str] = None
 
 
 class Object(BaseModel):

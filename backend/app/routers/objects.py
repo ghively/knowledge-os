@@ -1,96 +1,85 @@
-"""Objects Router - CRUD operations for objects"""
-import uuid
+"""Objects Router - CRUD operations for objects."""
 import logging
+import uuid
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
-from datetime import datetime
 
 from app.database.qdrant_client import qdrant_manager
-from app.models.objects import Object, ObjectCreate, ObjectUpdate, ObjectListResponse
-from app.services.websocket_manager import websocket_manager, WebSocketEvents
+from app.models.objects import ObjectCreate, ObjectListResponse, ObjectUpdate
 from app.services.embedding import embedding_service
+from app.services.relations import relation_service
+from app.services.websocket_manager import WebSocketEvents, websocket_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _merge_properties(existing: dict, incoming: Optional[dict]) -> dict:
+    merged = dict(existing or {})
+    if incoming:
+        for key, value in incoming.items():
+            merged[key] = value
+    merged["updated_at"] = datetime.utcnow().isoformat()
+    merged.setdefault("created_at", datetime.utcnow().isoformat())
+    return merged
 
 
 @router.get("", response_model=ObjectListResponse)
 async def list_objects(
     type: Optional[str] = None,
     limit: int = Query(50, ge=1, le=1000),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ):
-    """List all objects with optional filtering"""
+    """List objects with optional filtering."""
     client = qdrant_manager.get_async_client()
-    
-    # Build filter
-    query_filter = None
-    if type:
-        query_filter = {
-            "must": [{"key": "type", "match": {"value": type}}]
-        }
-    
-    # Scroll through collection using async client
-    results = await client.scroll(
+    query_filter = {"must": [{"key": "type", "match": {"value": type}}]} if type else None
+
+    all_results = await client.scroll(
         collection_name="objects",
         scroll_filter=query_filter,
-        limit=limit,
-        offset=offset,
+        limit=10000,
         with_payload=True,
-        with_vectors=False
+        with_vectors=False,
     )
-    
+
     objects = []
-    for result in results[0]:  # results is a tuple (points, next_offset)
-        payload = result.payload
-        payload["id"] = result.id
+    for point in all_results[0][offset: offset + limit]:
+        payload = dict(point.payload or {})
+        payload["id"] = str(point.id)
         objects.append(payload)
-    
-    return ObjectListResponse(
-        objects=objects,
-        total=len(objects)
-    )
+
+    return ObjectListResponse(objects=objects, total=len(all_results[0]))
 
 
 @router.get("/{object_id}")
 async def get_object(object_id: str):
-    """Get a single object by ID"""
+    """Get a single object by ID."""
     client = qdrant_manager.get_async_client()
-    
     results = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
         with_payload=True,
-        with_vectors=False
+        with_vectors=False,
     )
-    
     if not results:
         raise HTTPException(status_code=404, detail="Object not found")
-    
-    payload = results[0].payload
-    payload["id"] = results[0].id
-    
+
+    payload = dict(results[0].payload or {})
+    payload["id"] = str(results[0].id)
     return payload
 
 
 @router.post("")
 async def create_object(obj: ObjectCreate):
-    """Create a new object"""
+    """Create a new object."""
     client = qdrant_manager.get_async_client()
-    
-    # Generate ID
     object_id = str(uuid.uuid4())
-    
-    # Generate embedding from content or title
     content = obj.content or obj.title
     embedding = await embedding_service.embed_text(content)
-    
-    # Build payload
-    properties = obj.properties.model_dump() if obj.properties else {}
-    properties["created_at"] = datetime.now().isoformat()
-    properties["updated_at"] = datetime.now().isoformat()
-    
+
+    properties = _merge_properties({}, obj.properties.model_dump(exclude_none=True) if obj.properties else {})
     payload = {
         "id": object_id,
         "type": obj.type,
@@ -98,156 +87,103 @@ async def create_object(obj: ObjectCreate):
         "icon": obj.icon,
         "content": content,
         "properties": properties,
-        "layout": obj.layout or "default"
+        "layout": obj.layout or "default",
     }
-    
-    # Insert into Qdrant using async client
+
     await client.upsert(
         collection_name="objects",
-        points=[{
-            "id": object_id,
-            "vector": embedding.tolist(),
-            "payload": payload
-        }]
+        points=[{"id": object_id, "vector": embedding.tolist(), "payload": payload}],
     )
-    
-    # Broadcast event
-    await websocket_manager.broadcast(
-        WebSocketEvents.object_created(object_id, obj.type, obj.title)
-    )
-    
-    logger.info(f"Created object: {object_id} ({obj.type})")
-    
+    await relation_service.sync_object_links(object_id, obj.title, content)
+    await websocket_manager.broadcast(WebSocketEvents.object_created(object_id, obj.type, obj.title))
     return payload
 
 
 @router.put("/{object_id}")
 async def update_object(object_id: str, update: ObjectUpdate):
-    """Update an object"""
+    """Partial update for an object."""
     client = qdrant_manager.get_async_client()
-    
-    # Get existing object
     existing = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
         with_payload=True,
-        with_vectors=False
+        with_vectors=False,
     )
-    
     if not existing:
         raise HTTPException(status_code=404, detail="Object not found")
-    
-    payload = existing[0].payload
+
+    payload = dict(existing[0].payload or {})
     changes = []
-    
-    # Update fields
+
     if update.title is not None:
         payload["title"] = update.title
         changes.append("title")
-    
     if update.icon is not None:
         payload["icon"] = update.icon
         changes.append("icon")
-    
     if update.content is not None:
         payload["content"] = update.content
         changes.append("content")
-    
-    if update.properties is not None:
-        payload["properties"] = update.properties.model_dump()
-        changes.append("properties")
-    
     if update.layout is not None:
         payload["layout"] = update.layout
         changes.append("layout")
-    
-    # Update timestamp
-    payload["properties"]["updated_at"] = datetime.now().isoformat()
-    
-    # Regenerate embedding if content changed
-    if "content" in changes or "title" in changes:
-        embedding = await embedding_service.embed_text(
-            payload["content"] or payload["title"]
+    if update.properties is not None:
+        payload["properties"] = _merge_properties(
+            payload.get("properties", {}),
+            update.properties.model_dump(exclude_none=True),
         )
-        
+        changes.append("properties")
+    else:
+        payload["properties"] = _merge_properties(payload.get("properties", {}), None)
+
+    if not changes:
+        return payload
+
+    if "title" in changes or "content" in changes:
+        embedding = await embedding_service.embed_text(payload.get("content") or payload.get("title", ""))
         await client.upsert(
             collection_name="objects",
-            points=[{
-                "id": object_id,
-                "vector": embedding.tolist(),
-                "payload": payload
-            }]
+            points=[{"id": object_id, "vector": embedding.tolist(), "payload": payload}],
         )
     else:
-        # Just update payload without regenerating embedding
-        await client.set_payload(
-            collection_name="objects",
-            payload=payload,
-            points=[object_id]
-        )
-    
-    # Broadcast event
-    await websocket_manager.broadcast(
-        WebSocketEvents.object_updated(object_id, changes)
-    )
-    
-    logger.info(f"Updated object: {object_id}")
-    
+        await client.set_payload(collection_name="objects", payload=payload, points=[object_id])
+
+    await relation_service.sync_object_links(object_id, payload.get("title", ""), payload.get("content", ""))
+    await websocket_manager.broadcast(WebSocketEvents.object_updated(object_id, changes))
     return payload
 
 
 @router.delete("/{object_id}")
 async def delete_object(object_id: str):
-    """Delete an object"""
+    """Delete an object and cleanup related blocks and relations."""
     client = qdrant_manager.get_async_client()
-    
-    # Check if object exists
     existing = await client.retrieve(
         collection_name="objects",
         ids=[object_id],
         with_payload=False,
-        with_vectors=False
+        with_vectors=False,
     )
-    
     if not existing:
         raise HTTPException(status_code=404, detail="Object not found")
-    
-    # Delete from Qdrant
-    await client.delete(
-        collection_name="objects",
-        points_selector=[object_id]
+
+    blocks = await client.scroll(
+        collection_name="blocks",
+        scroll_filter={"must": [{"key": "object_id", "match": {"value": object_id}}]},
+        limit=10000,
+        with_payload=True,
+        with_vectors=False,
     )
-    
-    # Broadcast event
-    await websocket_manager.broadcast(
-        WebSocketEvents.object_deleted(object_id)
-    )
-    
-    logger.info(f"Deleted object: {object_id}")
-    
-    return {"message": "Object deleted"}
+    for block in blocks[0]:
+        await relation_service.remove_block_references(str(block.id))
+        await client.delete(collection_name="blocks", points_selector=[str(block.id)])
+
+    await relation_service.remove_relations_for_entity(object_id)
+    await client.delete(collection_name="objects", points_selector=[object_id])
+    await websocket_manager.broadcast(WebSocketEvents.object_deleted(object_id))
+    return {"message": "Object deleted", "id": object_id}
 
 
 @router.get("/{object_id}/relations")
 async def get_object_relations(object_id: str):
-    """Get relations for an object"""
-    client = qdrant_manager.get_async_client()
-    
-    # Query relations collection
-    results = await client.scroll(
-        collection_name="relations",
-        scroll_filter={
-            "must": [{"key": "source_id", "match": {"value": object_id}}]
-        },
-        limit=100,
-        with_payload=True,
-        with_vectors=False
-    )
-    
-    relations = []
-    for result in results[0]:
-        payload = result.payload
-        payload["id"] = result.id
-        relations.append(payload)
-    
-    return {"relations": relations}
+    """Get relations for an object."""
+    return {"relations": await relation_service.list_relations_for_object(object_id)}
