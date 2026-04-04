@@ -3,7 +3,6 @@ Tests for the tasks router.
 """
 
 import pytest
-from qdrant_client.models import PointStruct
 
 
 @pytest.mark.asyncio
@@ -13,225 +12,256 @@ class TestTasksRouter:
     async def test_list_tasks_empty(self, test_client):
         """Test listing tasks when none exist."""
         response = await test_client.get("/api/tasks")
-
         assert response.status_code == 200
         data = response.json()
         assert "tasks" in data
         assert data["tasks"] == []
-        assert data["total"] == 0
+        assert "by_status" in data
+        assert "by_priority" in data
 
-    async def test_list_tasks_with_data(self, test_client, mock_qdrant_client, sample_task_data):
+    async def test_list_tasks_with_data(self, test_client):
         """Test listing tasks with existing data."""
-        # Add mock data
-        point = PointStruct(
-            id=sample_task_data["id"],
-            vector=sample_task_data["vector"],
-            payload=sample_task_data["payload"],
-        )
-        mock_qdrant_client.upsert("objects", [point])
+        # Create a task object
+        await test_client.post("/api/objects", json={
+            "title": "Test Task",
+            "content": "Task description",
+            "type": "task",
+            "properties": {
+                "status": "todo",
+                "priority": "high",
+            },
+        })
 
         response = await test_client.get("/api/tasks")
-
         assert response.status_code == 200
         data = response.json()
         assert "tasks" in data
-        assert "total" in data
-        assert "counts" in data
+        assert len(data["tasks"]) >= 1
 
-    async def test_list_tasks_with_status_filter(self, test_client):
-        """Test listing tasks filtered by status."""
-        response = await test_client.get(
-            "/api/tasks",
-            params={"status": "todo"}
-        )
+    async def test_list_tasks_with_filters(self, test_client):
+        """Test listing tasks with status filter."""
+        response = await test_client.get("/api/tasks", params={"status": "todo"})
+        assert response.status_code == 200
 
+    async def test_create_task_via_objects(self, test_client):
+        """Test creating a task by posting to objects with type=task."""
+        task_data = {
+            "title": "New Task",
+            "content": "Task content",
+            "type": "task",
+            "properties": {
+                "status": "todo",
+                "priority": "medium",
+            },
+        }
+        response = await test_client.post("/api/objects", json=task_data)
         assert response.status_code == 200
         data = response.json()
-        assert "tasks" in data
+        assert data["type"] == "task"
 
-    async def test_list_tasks_with_priority_filter(self, test_client):
-        """Test listing tasks filtered by priority."""
-        response = await test_client.get(
-            "/api/tasks",
-            params={"priority": "high"}
-        )
+    async def test_get_task_success(self, test_client):
+        """Test getting a specific task."""
+        # Create a task
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Task to Get",
+            "content": "Task content",
+            "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        assert create_resp.status_code == 200
+        task_id = create_resp.json()["id"]
 
+        response = await test_client.get(f"/api/tasks/{task_id}")
         assert response.status_code == 200
         data = response.json()
-        assert "tasks" in data
-
-    async def test_list_tasks_with_agent_filter(self, test_client):
-        """Test listing tasks filtered by assigned agent."""
-        response = await test_client.get(
-            "/api/tasks",
-            params={"assigned_agent": "test-agent"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "tasks" in data
-
-    async def test_get_task_success(self, test_client, mock_qdrant_client, sample_task_data):
-        """Test getting a specific task by ID."""
-        # Add mock data
-        point = PointStruct(
-            id=sample_task_data["id"],
-            vector=sample_task_data["vector"],
-            payload=sample_task_data["payload"],
-        )
-        mock_qdrant_client.upsert("objects", [point])
-
-        response = await test_client.get(f"/api/tasks/{sample_task_data['id']}")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == sample_task_data["id"]
-        assert data["title"] == sample_task_data["payload"]["title"]
+        assert data["id"] == task_id
 
     async def test_get_task_not_found(self, test_client):
         """Test getting a non-existent task."""
-        response = await test_client.get("/api/tasks/non-existent-id")
-
+        response = await test_client.get("/api/tasks/non-existent")
         assert response.status_code == 404
 
-    async def test_assign_task_success(self, test_client, mock_openclaw_service):
+    async def test_assign_task_success(self, test_client):
         """Test assigning a task to an agent."""
-        assign_data = {
-            "agent_name": "test-agent",
-            "context": {"notes": "Test context"}
-        }
+        # Create a task
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Assignable Task",
+            "content": "Do something",
+            "type": "task",
+            "properties": {"status": "todo", "priority": "high"},
+        })
+        assert create_resp.status_code == 200
+        task_id = create_resp.json()["id"]
 
-        response = await test_client.post(
-            "/api/tasks/test-task-1/assign",
-            json=assign_data
-        )
-
+        response = await test_client.post(f"/api/tasks/{task_id}/assign", json={
+            "agent_name": "coder",
+            "priority": "high",
+            "include_context": False,
+        })
         assert response.status_code == 200
         data = response.json()
-        assert "agent" in data
-        assert data["agent"] == "test-agent"
+        assert data["task_id"] == task_id
+        assert data["agent_name"] == "coder"
 
     async def test_assign_task_missing_agent(self, test_client):
-        """Test assigning a task without specifying an agent."""
-        assign_data = {
-            "context": {"notes": "Test context"}
-        }
+        """Test assigning a task without agent_name."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Task", "content": "Do it", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
 
-        response = await test_client.post(
-            "/api/tasks/test-task-1/assign",
-            json=assign_data
-        )
+        response = await test_client.post(f"/api/tasks/{task_id}/assign", json={})
+        assert response.status_code == 400
 
-        assert response.status_code in [422, 400]
+    async def test_assign_task_not_found(self, test_client):
+        """Test assigning a non-existent task."""
+        response = await test_client.post("/api/tasks/non-existent/assign", json={
+            "agent_name": "coder",
+        })
+        assert response.status_code == 404
 
     async def test_update_task_status(self, test_client):
         """Test updating task status."""
-        status_data = {
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Status Task", "content": "Change my status", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
+
+        response = await test_client.post(f"/api/tasks/{task_id}/status", json={
             "status": "in-progress",
-            "notes": "Started working on it"
-        }
-
-        response = await test_client.post(
-            "/api/tasks/test-task-1/status",
-            json=status_data
-        )
-
+            "agent_name": "coder",
+        })
         assert response.status_code == 200
         data = response.json()
-        assert "status" in data
+        assert data["status"] == "in-progress"
 
-    async def test_update_task_status_invalid(self, test_client):
-        """Test updating task status with invalid status."""
-        status_data = {
-            "status": "invalid_status"
-        }
+    async def test_update_task_invalid_status(self, test_client):
+        """Test updating task with invalid status."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Bad Status", "content": "test", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
 
-        response = await test_client.post(
-            "/api/tasks/test-task-1/status",
-            json=status_data
-        )
+        response = await test_client.post(f"/api/tasks/{task_id}/status", json={
+            "status": "invalid_status",
+        })
+        assert response.status_code == 400
 
-        assert response.status_code in [422, 400]
-
-    async def test_update_task_status_all_statuses(self, test_client):
-        """Test updating task status with all valid statuses."""
-        valid_statuses = ["todo", "in-progress", "blocked", "review", "done"]
-
-        for status in valid_statuses:
-            response = await test_client.post(
-                "/api/tasks/test-task-1/status",
-                json={"status": status}
-            )
-            assert response.status_code in [200, 404]  # 404 if task doesn't exist
+    async def test_update_task_status_not_found(self, test_client):
+        """Test updating status for non-existent task."""
+        response = await test_client.post("/api/tasks/non-existent/status", json={
+            "status": "done",
+        })
+        assert response.status_code == 404
 
     async def test_get_task_context(self, test_client):
-        """Test getting context for a task."""
-        response = await test_client.get("/api/tasks/test-task-1/context")
+        """Test getting task context."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Context Task", "content": "Build context", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
 
+        response = await test_client.get(f"/api/tasks/{task_id}/context")
         assert response.status_code == 200
         data = response.json()
         assert "context" in data
-        assert "entities" in data["context"]
 
     async def test_get_task_context_not_found(self, test_client):
         """Test getting context for non-existent task."""
         response = await test_client.get("/api/tasks/non-existent/context")
-
-        # Should return empty context or 404
-        assert response.status_code in [200, 404]
-
-    async def test_create_task(self, test_client):
-        """Test creating a new task via objects endpoint."""
-        # Tasks are objects with object_type="task"
-        task_data = {
-            "title": "New Test Task",
-            "description": "Task description",
-            "object_type": "task",
-            "status": "todo",
-            "priority": "medium",
-        }
-
-        response = await test_client.post("/api/objects", json=task_data)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["title"] == task_data["title"]
-        assert data["object_type"] == "task"
-
-    async def test_task_priorities(self, test_client):
-        """Test all valid task priorities."""
-        valid_priorities = ["low", "medium", "high", "urgent"]
-
-        for priority in valid_priorities:
-            response = await test_client.post("/api/objects", json={
-                "title": f"Task with {priority} priority",
-                "object_type": "task",
-                "priority": priority,
-            })
-            assert response.status_code == 200
+        assert response.status_code == 200  # Context builder returns empty context
 
 
 @pytest.mark.asyncio
-class TestTaskContextBuilder:
-    """Test cases for task context building service."""
+class TestTaskAssignment:
+    """Test cases for task assignment logic."""
 
-    async def test_build_empty_context(self):
-        """Test building context for a task with no related entities."""
-        from app.services.context_builder import build_task_context
+    async def test_assign_with_context(self, test_client):
+        """Test assigning a task with context included."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Context Task", "content": "Needs context", "type": "task",
+            "properties": {"status": "todo", "priority": "high"},
+        })
+        task_id = create_resp.json()["id"]
 
-        # This would need actual task data
-        # For now just test that the function exists
-        assert callable(build_task_context)
+        response = await test_client.post(f"/api/tasks/{task_id}/assign", json={
+            "agent_name": "coder",
+            "priority": "high",
+            "include_context": True,
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "context" in data
 
-    async def test_context_includes_pointers(self):
-        """Test that context includes entity pointers."""
-        # Context builder should create pointers to related entities
-        pass
+    async def test_assign_low_priority_heartbeat(self, test_client):
+        """Test low priority task goes to heartbeat."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Low Priority", "content": "Background task", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
 
-    async def test_context_includes_relations(self):
-        """Test that context includes related entities."""
-        # Context builder should fetch related entities
-        pass
+        response = await test_client.post(f"/api/tasks/{task_id}/assign", json={
+            "agent_name": "coder",
+            "priority": "low",
+            "include_context": False,
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["assignment_type"] == "heartbeat"
+
+
+@pytest.mark.asyncio
+class TestTaskStatusUpdates:
+    """Test cases for task status updates."""
+
+    async def test_complete_task(self, test_client):
+        """Test marking a task as done."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Completable", "content": "Almost done", "type": "task",
+            "properties": {"status": "in-progress", "priority": "medium"},
+        })
+        task_id = create_resp.json()["id"]
+
+        response = await test_client.post(f"/api/tasks/{task_id}/status", json={
+            "status": "done",
+            "agent_name": "coder",
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "done"
+
+    async def test_update_with_current_action(self, test_client):
+        """Test updating task with current action."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Action Task", "content": "Working", "type": "task",
+            "properties": {"status": "in-progress", "priority": "medium"},
+        })
+        task_id = create_resp.json()["id"]
+
+        response = await test_client.post(f"/api/tasks/{task_id}/status", json={
+            "status": "in-progress",
+            "current_action": "writing tests",
+            "agent_name": "coder",
+        })
+        assert response.status_code == 200
+
+    async def test_valid_statuses(self, test_client):
+        """Test all valid status transitions."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Status Test", "content": "test", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
+
+        for status in ["todo", "in-progress", "blocked", "review", "done"]:
+            response = await test_client.post(f"/api/tasks/{task_id}/status", json={
+                "status": status,
+            })
+            assert response.status_code == 200, f"Failed for status: {status}"
 
 
 @pytest.mark.asyncio
@@ -239,19 +269,51 @@ class TestTaskCounts:
     """Test cases for task count aggregation."""
 
     async def test_counts_by_status(self, test_client):
-        """Test getting task counts grouped by status."""
-        response = await test_client.get("/api/tasks")
+        """Test status count aggregation."""
+        # Create tasks with different statuses
+        for status in ["todo", "todo", "done"]:
+            await test_client.post("/api/objects", json={
+                "title": f"Task-{status}",
+                "content": f"Task with status {status}",
+                "type": "task",
+                "properties": {"status": status, "priority": "medium"},
+            })
 
+        response = await test_client.get("/api/tasks")
         assert response.status_code == 200
         data = response.json()
-        assert "counts" in data
-        assert "by_status" in data["counts"]
+        assert data["by_status"]["todo"] >= 2
+        assert data["by_status"]["done"] >= 1
 
     async def test_counts_by_priority(self, test_client):
-        """Test getting task counts grouped by priority."""
-        response = await test_client.get("/api/tasks")
+        """Test priority count aggregation."""
+        for priority in ["high", "low", "high"]:
+            await test_client.post("/api/objects", json={
+                "title": f"Task-{priority}",
+                "content": f"Priority task",
+                "type": "task",
+                "properties": {"status": "todo", "priority": priority},
+            })
 
+        response = await test_client.get("/api/tasks")
         assert response.status_code == 200
         data = response.json()
-        assert "counts" in data
-        assert "by_priority" in data["counts"]
+        assert data["by_priority"]["high"] >= 2
+
+
+@pytest.mark.asyncio
+class TestTaskContextBuilder:
+    """Test cases for task context building."""
+
+    async def test_build_empty_context(self, test_client):
+        """Test building context for a task with no related data."""
+        create_resp = await test_client.post("/api/objects", json={
+            "title": "Lonely Task", "content": "No relations", "type": "task",
+            "properties": {"status": "todo", "priority": "low"},
+        })
+        task_id = create_resp.json()["id"]
+
+        response = await test_client.get(f"/api/tasks/{task_id}/context")
+        assert response.status_code == 200
+        data = response.json()
+        assert "context" in data

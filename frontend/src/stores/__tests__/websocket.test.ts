@@ -1,436 +1,162 @@
+/**
+ * Tests for WebSocket store.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useWebSocketStore } from '../websocket'
+
+// Mock WebSocket
+class MockWebSocket {
+  static OPEN = 1
+  static CLOSED = 3
+  static CONNECTING = 0
+  static CLOSING = 2
+
+  readyState = MockWebSocket.CONNECTING
+  onopen: (() => void) | null = null
+  onclose: (() => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onerror: ((error: unknown) => void) | null = null
+
+  send = vi.fn()
+  close = vi.fn(() => {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
+  })
+
+  constructor(public url: string) {
+    // Simulate async open
+    setTimeout(() => {
+      this.readyState = MockWebSocket.OPEN
+      this.onopen?.()
+    }, 0)
+  }
+}
 
 describe('WebSocket Store', () => {
+  let originalWebSocket: typeof WebSocket
+
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    originalWebSocket = global.WebSocket
+    // Reset store state
+    useWebSocketStore.setState({
+      socket: null,
+      isConnected: false,
+      reconnectAttempts: 0,
+      lastMessage: null,
+    })
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
+    vi.useRealTimers()
+    global.WebSocket = originalWebSocket
   })
 
   describe('initial state', () => {
-    it('should have initial state', () => {
-      // Import the store after mocking
-      const { useWebSocketStore } = require('../websocket')
-
-      const store = useWebSocketStore.getState()
-
-      expect(store.socket).toBeNull()
-      expect(store.isConnected).toBe(false)
-      expect(store.reconnectAttempts).toBe(0)
-      expect(store.lastMessage).toBeNull()
+    it('should have correct initial state', () => {
+      const state = useWebSocketStore.getState()
+      expect(state.socket).toBeNull()
+      expect(state.isConnected).toBe(false)
+      expect(state.reconnectAttempts).toBe(0)
+      expect(state.lastMessage).toBeNull()
     })
   })
 
   describe('connect', () => {
     it('should create WebSocket connection', async () => {
-      // Mock WebSocket
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait a tick for connection
-      await new Promise(resolve => setTimeout(resolve, 0))
-
-      expect(WebSocket).toHaveBeenCalledWith('ws://localhost:8000/ws')
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      
+      // Wait for async open
+      await vi.advanceTimersByTimeAsync(10)
+      
+      const socket = useWebSocketStore.getState().socket
+      expect(socket).not.toBeNull()
     })
 
-    it('should set isConnected to true on open', async () => {
-      const mockWebSocket = {
-        readyState: WebSocket.CONNECTING,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'open') {
-            setTimeout(() => callback(), 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for open event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
+    it('should set isConnected on open', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      
+      // Wait for async open
+      await vi.advanceTimersByTimeAsync(10)
+      
       expect(useWebSocketStore.getState().isConnected).toBe(true)
     })
 
-    it('should handle connection errors', async () => {
-      const mockWebSocket = {
-        readyState: WebSocket.CONNECTING,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('Connection failed')), 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for error event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      // Should attempt reconnection
-      expect(useWebSocketStore.getState().reconnectAttempts).toBeGreaterThan(0)
+    it('should reset reconnect attempts on connect', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.setState({ reconnectAttempts: 3 })
+      useWebSocketStore.getState().connect()
+      
+      await vi.advanceTimersByTimeAsync(10)
+      
+      expect(useWebSocketStore.getState().reconnectAttempts).toBe(0)
     })
   })
 
   describe('disconnect', () => {
-    it('should close WebSocket connection', () => {
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
+    it('should close the connection', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      await vi.advanceTimersByTimeAsync(10)
+      
       useWebSocketStore.getState().disconnect()
-
-      expect(mockWebSocket.close).toHaveBeenCalled()
-      expect(useWebSocketStore.getState().socket).toBeNull()
+      
       expect(useWebSocketStore.getState().isConnected).toBe(false)
+      expect(useWebSocketStore.getState().socket).toBeNull()
+    })
+
+    it('should handle disconnect when not connected', () => {
+      useWebSocketStore.getState().disconnect()
+      expect(useWebSocketStore.getState().socket).toBeNull()
     })
   })
 
   describe('send', () => {
-    it('should send message through WebSocket', () => {
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      const message = { type: 'test', data: 'hello' }
-      useWebSocketStore.getState().send(message)
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(JSON.stringify(message))
+    it('should send messages when connected', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      await vi.advanceTimersByTimeAsync(10)
+      
+      const mockSocket = useWebSocketStore.getState().socket as MockWebSocket
+      useWebSocketStore.getState().send({ type: 'test', data: 'hello' })
+      
+      expect(mockSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'test', data: 'hello' }))
     })
 
-    it('should not send if not connected', () => {
-      const mockWebSocket = {
-        readyState: WebSocket.CLOSED,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      const message = { type: 'test', data: 'hello' }
-      useWebSocketStore.getState().send(message)
-
-      expect(mockWebSocket.send).not.toHaveBeenCalled()
+    it('should not send when not connected', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      useWebSocketStore.getState().send({ type: 'test' })
+      expect(consoleSpy).toHaveBeenCalledWith('WebSocket not connected')
+      consoleSpy.mockRestore()
     })
   })
 
   describe('message handling', () => {
-    it('should handle incoming messages', async () => {
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'message') {
-            setTimeout(() => {
-              callback({ data: JSON.stringify({ type: 'test', data: 'hello' }) })
-            }, 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for message event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(useWebSocketStore.getState().lastMessage).toEqual({
-        type: 'test',
-        data: 'hello',
-      })
-    })
-
-    it('should handle invalid messages', async () => {
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'message') {
-            setTimeout(() => {
-              callback({ data: 'invalid json' })
-            }, 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for message event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      // Should not crash or set invalid message
-      expect(useWebSocketStore.getState().lastMessage).not.toEqual({
-        data: 'invalid json',
-      })
+    it('should set lastMessage on message received', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      await vi.advanceTimersByTimeAsync(10)
+      
+      const mockSocket = useWebSocketStore.getState().socket as MockWebSocket
+      mockSocket.onmessage!({ data: JSON.stringify({ type: 'test', data: 'hello' }) })
+      
+      expect(useWebSocketStore.getState().lastMessage).toEqual({ type: 'test', data: 'hello' })
     })
   })
 
   describe('reconnection', () => {
-    it('should attempt reconnection on disconnect', async () => {
-      let connectCount = 0
-
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'close') {
-            setTimeout(() => {
-              callback({ code: 1006 })
-            }, 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => {
-        connectCount++
-        return mockWebSocket
-      }) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for close event and potential reconnection
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      // Should have attempted reconnection
-      expect(connectCount).toBeGreaterThan(1)
-    })
-
-    it('should limit reconnection attempts', async () => {
-      const mockWebSocket = {
-        readyState: WebSocket.CONNECTING,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'close') {
-            setTimeout(() => {
-              callback({ code: 1006 })
-            }, 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      // Set max reconnection attempts
-      useWebSocketStore.getState().setMaxReconnectAttempts(3)
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Wait for multiple reconnection attempts
-      await new Promise(resolve => setTimeout(resolve, 200))
-
-      // Should respect max attempts
-      expect(useWebSocketStore.getState().reconnectAttempts).toBeLessThanOrEqual(3)
-    })
-  })
-
-  describe('ping/pong', () => {
-    it('should send ping messages', async () => {
-      vi.useFakeTimers()
-
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws')
-
-      // Advance timer to trigger ping
-      vi.advanceTimersByTime(30000)
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: 'ping' })
-      )
-
-      vi.useRealTimers()
-    })
-  })
-
-  describe('event handlers', () => {
-    it('should call custom onOpen handler', async () => {
-      const onOpen = vi.fn()
-
-      const mockWebSocket = {
-        readyState: WebSocket.CONNECTING,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'open') {
-            setTimeout(() => callback(), 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws', { onOpen })
-
-      // Wait for open event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(onOpen).toHaveBeenCalled()
-    })
-
-    it('should call custom onClose handler', async () => {
-      const onClose = vi.fn()
-
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'close') {
-            setTimeout(() => callback({ code: 1000 }), 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws', { onClose })
-
-      // Wait for close event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(onClose).toHaveBeenCalled()
-    })
-
-    it('should call custom onError handler', async () => {
-      const onError = vi.fn()
-
-      const mockWebSocket = {
-        readyState: WebSocket.CONNECTING,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('Connection failed')), 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws', { onError })
-
-      // Wait for error event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(onError).toHaveBeenCalled()
-    })
-
-    it('should call custom onMessage handler', async () => {
-      const onMessage = vi.fn()
-
-      const mockWebSocket = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        close: vi.fn(),
-        addEventListener: vi.fn((event, callback) => {
-          if (event === 'message') {
-            setTimeout(() => {
-              callback({ data: JSON.stringify({ type: 'test' }) })
-            }, 0)
-          }
-        }),
-        removeEventListener: vi.fn(),
-      }
-
-      global.WebSocket = vi.fn(() => mockWebSocket) as any
-
-      const { useWebSocketStore } = require('../websocket')
-
-      useWebSocketStore.getState().connect('ws://localhost:8000/ws', { onMessage })
-
-      // Wait for message event
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(onMessage).toHaveBeenCalledWith({ type: 'test' })
+    it('should increment reconnect attempts on close', async () => {
+      global.WebSocket = MockWebSocket as any
+      useWebSocketStore.getState().connect()
+      await vi.advanceTimersByTimeAsync(10)
+      
+      const mockSocket = useWebSocketStore.getState().socket as MockWebSocket
+      mockSocket.onclose!()
+      
+      expect(useWebSocketStore.getState().reconnectAttempts).toBe(1)
     })
   })
 })

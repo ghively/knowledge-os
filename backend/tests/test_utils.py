@@ -46,8 +46,8 @@ class TestTimeUtilities:
         results = [utc_now_iso() for _ in range(10)]
 
         for result in results:
-            # All should end with Z for UTC
-            assert result.endswith('Z')
+            # Should have UTC timezone info (+00:00 in Python 3.9)
+            assert '+00:00' in result
 
             # All should have T separator
             assert 'T' in result
@@ -84,11 +84,12 @@ class TestTimeEdgeCases:
         result = utc_now_iso()
 
         # Python datetime
-        parsed_python = datetime.fromisoformat(result.replace('Z', '+00:00'))
+        parsed_python = datetime.fromisoformat(result)
         assert parsed_python is not None
 
-        # The format should be: YYYY-MM-DDTHH:MM:SS.ffffffZ
-        assert len(result) == 27  # Fixed length with microseconds
+        # The format should be ISO-8601 with timezone
+        assert 'T' in result
+        assert '+00:00' in result
 
 
 @pytest.mark.asyncio

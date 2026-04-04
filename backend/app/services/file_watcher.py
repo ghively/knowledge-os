@@ -1,4 +1,5 @@
 """File Watcher Service - Watches folders for changes and indexes files."""
+from __future__ import annotations
 import ast
 import hashlib
 import json

@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 from qdrant_client import models as qdrant_models
-from qdrant_client.http.models import PayloadSchema
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -74,7 +73,7 @@ def mock_qdrant_client():
                         id=point.id,
                         score=0.9 - (i * 0.1),
                         payload=point.payload,
-                        vector=point.vector,
+                        version=0,
                     )
                 )
         return results
@@ -100,7 +99,7 @@ def mock_qdrant_client():
                         qdrant_models.Record(
                             id=point.id,
                             payload=point.payload,
-                            vector=point.vector,
+                            
                         )
                     )
         return results
@@ -149,6 +148,9 @@ def mock_qdrant_client():
 @pytest.fixture
 def mock_async_qdrant_client():
     """Mock async Qdrant client."""
+    from unittest.mock import MagicMock
+    import numpy as np
+
     mock_client = AsyncMock()
 
     # Storage for mock data
@@ -164,6 +166,7 @@ def mock_async_qdrant_client():
             "chat_logs": {},
         },
         "points": {},
+        "counters": {coll: 0 for coll in ["objects", "blocks", "relations", "files", "images", "code", "agent_memories", "chat_logs"]},
     }
 
     # Mock point operations
@@ -171,8 +174,16 @@ def mock_async_qdrant_client():
         for point in points:
             if isinstance(point, qdrant_models.PointStruct):
                 mock_storage["points"][point.id] = point
+                mock_storage["counters"][collection_name] = mock_storage["counters"].get(collection_name, 0) + 1
             elif isinstance(point, dict):
-                mock_storage["points"][point["id"]] = point
+                # Convert dict to PointStruct for storage
+                mock_point = qdrant_models.PointStruct(
+                    id=point["id"],
+                    vector=point.get("vector", [0.1] * 384),
+                    payload=point.get("payload", {}),
+                )
+                mock_storage["points"][point["id"]] = mock_point
+                mock_storage["counters"][collection_name] = mock_storage["counters"].get(collection_name, 0) + 1
 
     async def mock_search(collection_name, query_vector, limit=10, **kwargs):
         points = list(mock_storage["points"].values())
@@ -184,7 +195,7 @@ def mock_async_qdrant_client():
                         id=point.id,
                         score=0.9 - (i * 0.1),
                         payload=point.payload,
-                        vector=point.vector,
+                        version=0,
                     )
                 )
         return results
@@ -193,12 +204,22 @@ def mock_async_qdrant_client():
         return await mock_search(collection_name, [], limit)
 
     async def mock_delete(collection_name, points_selector, **kwargs):
-        if hasattr(points_selector, "points"):
+        # Handle both list of IDs and points_selector objects
+        if isinstance(points_selector, list):
+            for point_id in points_selector:
+                if point_id in mock_storage["points"]:
+                    del mock_storage["points"][point_id]
+                    mock_storage["counters"][collection_name] = max(0, mock_storage["counters"].get(collection_name, 0) - 1)
+        elif hasattr(points_selector, "points"):
             for point_id in points_selector.points:
-                mock_storage["points"].pop(point_id, None)
+                if point_id in mock_storage["points"]:
+                    del mock_storage["points"][point_id]
+                    mock_storage["counters"][collection_name] = max(0, mock_storage["counters"].get(collection_name, 0) - 1)
         elif hasattr(points_selector, "ids"):
             for point_id in points_selector.ids:
-                mock_storage["points"].pop(point_id, None)
+                if point_id in mock_storage["points"]:
+                    del mock_storage["points"][point_id]
+                    mock_storage["counters"][collection_name] = max(0, mock_storage["counters"].get(collection_name, 0) - 1)
 
     async def mock_retrieve(collection_name, ids, **kwargs):
         results = []
@@ -210,20 +231,44 @@ def mock_async_qdrant_client():
                         qdrant_models.Record(
                             id=point.id,
                             payload=point.payload,
-                            vector=point.vector,
+                            
                         )
                     )
         return results
 
     async def mock_count(collection_name, **kwargs):
-        count = len(
-            [
-                p
-                for p in mock_storage["points"].values()
-                if isinstance(p, qdrant_models.PointStruct)
-            ]
-        )
-        return MagicMock(count=count)
+        count = mock_storage["counters"].get(collection_name, 0)
+        count_result = MagicMock()
+        count_result.count = count
+        return count_result
+
+    async def mock_scroll(collection_name, limit=10, scroll_filter=None, with_payload=True, with_vectors=False, **kwargs):
+        # limit may come as a FastAPI Query object or other non-int type
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+        points = list(mock_storage["points"].values())[:limit]
+        records = []
+        for point in points:
+            if isinstance(point, qdrant_models.PointStruct):
+                records.append(
+                    qdrant_models.Record(
+                        id=point.id, payload=point.payload, vector=point.vector
+                    )
+                )
+        return records, None
+
+    async def mock_set_payload(collection_name, payload, points):
+        """Mock set_payload operation."""
+        for point_id in points if isinstance(points, list) else [points]:
+            if point_id in mock_storage["points"]:
+                point = mock_storage["points"][point_id]
+                if isinstance(point, qdrant_models.PointStruct):
+                    # Merge payload
+                    existing_payload = dict(point.payload or {})
+                    existing_payload.update(payload)
+                    point.payload = existing_payload
 
     mock_client.upsert = mock_upsert
     mock_client.search = mock_search
@@ -231,6 +276,8 @@ def mock_async_qdrant_client():
     mock_client.delete = mock_delete
     mock_client.retrieve = mock_retrieve
     mock_client.count = mock_count
+    mock_client.scroll = mock_scroll
+    mock_client.set_payload = mock_set_payload
     mock_client._storage = mock_storage
 
     return mock_client
@@ -239,6 +286,8 @@ def mock_async_qdrant_client():
 @pytest.fixture
 def mock_sqlite_manager():
     """Mock SQLite database manager."""
+    from unittest.mock import AsyncMock
+
     mock_manager = MagicMock()
 
     # Mock storage
@@ -250,22 +299,22 @@ def mock_sqlite_manager():
         "agent_sessions": {},
     }
 
-    def mock_execute(query, params=None):
+    async def mock_execute(query, params=None):
         return MagicMock(lastrowid=1, rowcount=1)
 
-    def mock_executemany(query, params):
+    async def mock_executemany(query, params):
         return MagicMock(rowcount=len(params) if params else 0)
 
-    def mock_fetchone(query, params=None):
+    async def mock_fetchone(query, params=None):
         return None
 
-    def mock_fetchall(query, params=None):
+    async def mock_fetchall(query, params=None):
         return []
 
-    def mock_upsert_setting(key, value):
+    async def mock_upsert_setting(key, value):
         storage["settings"][key] = value
 
-    def mock_get_setting(key, default=None):
+    async def mock_get_setting(key, default=None):
         return storage["settings"].get(key, default)
 
     mock_manager.execute = mock_execute
@@ -282,24 +331,37 @@ def mock_sqlite_manager():
 @pytest.fixture
 def mock_embedding_service():
     """Mock embedding service with deterministic vectors."""
+    import numpy as np
+    from unittest.mock import AsyncMock
+
     mock_service = MagicMock()
 
-    def mock_embed_text(text):
+    async def mock_embed_text(text):
         # Deterministic 384-dim vector based on text hash
         import hashlib
 
         hash_val = int(hashlib.md5(text.encode()).hexdigest(), 16)
-        return [(hash_val + i) % 1000 / 1000 for i in range(384)]
+        vector = np.array([(hash_val + i) % 1000 / 1000 for i in range(384)], dtype=np.float32)
+        # Normalize to unit length
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+        return vector
 
-    def mock_embed_texts(texts):
-        return [mock_embed_text(text) for text in texts]
+    async def mock_embed_texts(texts):
+        return [await mock_embed_text(text) for text in texts]
 
-    def mock_embed_image(image_path):
+    async def mock_embed_image(image_path):
         # Deterministic 512-dim vector
         import hashlib
 
         hash_val = int(hashlib.md5(image_path.encode()).hexdigest(), 16)
-        return [(hash_val + i) % 1000 / 1000 for i in range(512)]
+        vector = np.array([(hash_val + i) % 1000 / 1000 for i in range(512)], dtype=np.float32)
+        # Normalize to unit length
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+        return vector
 
     mock_service.embed_text = mock_embed_text
     mock_service.embed_texts = mock_embed_texts
@@ -367,20 +429,53 @@ def mock_openclaw_service():
 
 
 @pytest.fixture
-async def test_client(mock_qdrant_client, mock_embedding_service):
+async def test_client_with_store(mock_async_qdrant_client, mock_embedding_service, mock_sqlite_manager):
+    """Create test HTTP client with mocked dependencies, exposing the mock store for pre-population."""
+    from app.main import app
+    from app.database.qdrant_client import qdrant_manager
+    from app.database.sqlite import sqlite_manager
+    from app.services.embedding import embedding_service as emb_svc
+
+    # Patch the singletons' methods
+    with patch.object(qdrant_manager, "get_async_client", return_value=mock_async_qdrant_client), \
+         patch.object(qdrant_manager, "get_client", return_value=mock_async_qdrant_client), \
+         patch.object(qdrant_manager, "async_client", mock_async_qdrant_client), \
+         patch.object(emb_svc, "embed_text", mock_embedding_service.embed_text), \
+         patch.object(emb_svc, "embed_texts", mock_embedding_service.embed_texts), \
+         patch.object(emb_svc, "embed_image", mock_embedding_service.embed_image), \
+         patch.object(sqlite_manager, "get_setting", mock_sqlite_manager.get_setting), \
+         patch.object(sqlite_manager, "upsert_setting", mock_sqlite_manager.upsert_setting), \
+         patch.object(sqlite_manager, "fetchone", mock_sqlite_manager.fetchone), \
+         patch.object(sqlite_manager, "fetchall", mock_sqlite_manager.fetchall), \
+         patch.object(sqlite_manager, "execute", mock_sqlite_manager.execute):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client, mock_async_qdrant_client._storage
+
+
+@pytest.fixture
+async def test_client(mock_async_qdrant_client, mock_embedding_service, mock_sqlite_manager):
     """Create test HTTP client with mocked dependencies."""
     from app.main import app
-    from app.database import qdrant_client
+    from app.database.qdrant_client import qdrant_manager
+    from app.database.sqlite import sqlite_manager
+    from app.services.embedding import embedding_service as emb_svc
 
-    # Patch the qdrant_client singleton
-    with patch.object(qdrant_client, "get_client", return_value=mock_qdrant_client), \
-         patch.object(qdrant_client, "get_async_client", return_value=mock_async_qdrant_client()), \
-         patch("app.services.embedding.embedding_service", mock_embedding_service):
+    # Patch the singletons' methods
+    with patch.object(qdrant_manager, "get_async_client", return_value=mock_async_qdrant_client), \
+         patch.object(qdrant_manager, "get_client", return_value=mock_async_qdrant_client), \
+         patch.object(qdrant_manager, "async_client", mock_async_qdrant_client), \
+         patch.object(emb_svc, "embed_text", mock_embedding_service.embed_text), \
+         patch.object(emb_svc, "embed_texts", mock_embedding_service.embed_texts), \
+         patch.object(emb_svc, "embed_image", mock_embedding_service.embed_image), \
+         patch.object(sqlite_manager, "get_setting", mock_sqlite_manager.get_setting), \
+         patch.object(sqlite_manager, "upsert_setting", mock_sqlite_manager.upsert_setting), \
+         patch.object(sqlite_manager, "fetchone", mock_sqlite_manager.fetchone), \
+         patch.object(sqlite_manager, "fetchall", mock_sqlite_manager.fetchall), \
+         patch.object(sqlite_manager, "execute", mock_sqlite_manager.execute):
 
-        # Create transport
         transport = ASGITransport(app=app)
-
-        # Create async client
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
 
