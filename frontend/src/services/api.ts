@@ -56,19 +56,28 @@ export interface ChatMessage {
 
 export interface FileItem {
   id: string
-  name: string
+  name?: string
+  filename?: string
   path: string
   content_type?: string
-  indexed: boolean
+  mime_type?: string
+  indexed?: boolean
   indexed_at?: string
+  last_indexed?: string
   hash?: string
+  checksum?: string
+  size_bytes?: number
+  index_status?: 'pending' | 'processing' | 'indexed' | 'error'
+  error_message?: string | null
 }
 
 export interface SearchResult {
   id: string
-  type: string
-  title: string
-  content: string
+  type?: string
+  title?: string
+  content?: string
+  context?: string
+  filename?: string
   score: number
   collection: string
 }
@@ -156,17 +165,19 @@ export const blocksApi = {
     api.get<{ blocks: BlockItem[] }>(`/blocks/object/${objectId}`).then((r) => r.data),
 
   create: (objectId: string, data: {
+    id?: string
     content: string
     type?: string
     level?: number
     properties?: Record<string, unknown>
     parent_id?: string | null
-  }) => api.post<BlockItem>(`/blocks?object_id=${objectId}`, data).then((r) => r.data),
+    order?: number
+  }) => api.post<BlockItem>('/blocks', { object_id: objectId, ...data }).then((r) => r.data),
 
   update: (id: string, data: Partial<BlockItem>) =>
     api.put<BlockItem>(`/blocks/${id}`, data).then((r) => r.data),
 
-  batchUpdate: (blocks: { id: string; order: number; parent_id?: string | null }[]) =>
+  batchUpdate: (blocks: { id: string; order: number; parent_id?: string | null; level?: number }[]) =>
     api.post('/blocks/batch-update', { blocks }).then((r) => r.data),
 
   delete: (id: string) =>
@@ -176,7 +187,7 @@ export const blocksApi = {
 // Tasks API
 export const tasksApi = {
   list: (params?: { status?: string; priority?: string; assigned_to?: string }) =>
-    api.get<{ tasks: TaskItem[] }>('/tasks', { params }).then((r) => r.data),
+    api.get<{ tasks: TaskItem[]; by_status: Record<string, number>; by_priority: Record<string, number> }>('/tasks', { params }).then((r) => r.data),
 
   get: (id: string) =>
     api.get<TaskItem>(`/tasks/${id}`).then((r) => r.data),
@@ -223,7 +234,7 @@ export const agentsApi = {
 // Search API
 export const searchApi = {
   search: (query: string, type: 'semantic' | 'exact' = 'semantic', params?: { collection?: string; limit?: number }) =>
-    api.get<{ results: SearchResult[] }>('/search', { params: { q: query, type, ...params } }).then((r) => r.data),
+    api.get<{ results: SearchResult[] }>('/search', { params: { q: query, exact: type === 'exact', ...params } }).then((r) => r.data),
 
   findSimilar: (objectId: string, params?: { collection?: string; limit?: number }) =>
     api.get<{ results: SearchResult[] }>(`/search/similar/${objectId}`, { params }).then((r) => r.data),

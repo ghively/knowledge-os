@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createEditor, Descendant, Transforms, Editor, Element as SlateElement, BaseEditor } from 'slate'
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react'
 import { withHistory } from 'slate-history'
@@ -58,8 +58,15 @@ declare module 'slate' {
 }
 
 // Empty block factory
+const createBlockId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `block-${Math.random().toString(36).slice(2, 11)}`
+}
+
 const createEmptyBlock = (type: BlockType = 'paragraph', level: number = 0): BlockElement => ({
-  id: Math.random().toString(36).substr(2, 9),
+  id: createBlockId(),
   type,
   level,
   children: [{ text: '' }],
@@ -233,6 +240,7 @@ export function OutlinerEditor({
   readOnly = false 
 }: OutlinerEditorProps) {
   const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const initialSignature = useMemo(() => JSON.stringify(initialBlocks), [initialBlocks])
   
   // Convert initial blocks to Slate format
   const [value, setValue] = useState<Descendant[]>(() => {
@@ -247,6 +255,20 @@ export function OutlinerEditor({
       children: b.children,
     }))
   })
+
+  useEffect(() => {
+    if (initialBlocks.length === 0) {
+      setValue([createEmptyBlock()])
+      return
+    }
+    setValue(initialBlocks.map((b) => ({
+      id: b.id,
+      type: b.type,
+      level: b.level || 0,
+      checked: b.checked,
+      children: b.children,
+    })))
+  }, [initialBlocks, initialSignature])
 
   // Handle key commands
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
@@ -326,7 +348,7 @@ export function OutlinerEditor({
     
     // Convert back to BlockElement format
     const blocks = newValue.map((node) => ({
-      id: (node as CustomElement).id || Math.random().toString(36).substr(2, 9),
+      id: (node as CustomElement).id || createBlockId(),
       type: (node as CustomElement).type,
       level: (node as CustomElement).level || 0,
       checked: (node as CustomElement).checked,
