@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios'
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -196,11 +196,15 @@ api.interceptors.request.use(
 // Response interceptor for error handling and token refresh
 api.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError) => {
-    const originalRequest = error.config as AxiosError & { _retry?: boolean }
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) {
+      throw new APIError('An unknown error occurred')
+    }
+
+    const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
 
     // If 401 and not already tried to refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true
 
       try {
