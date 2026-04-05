@@ -15,7 +15,7 @@ interface AuthState {
   register: (data: RegisterData) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
-  refreshToken: () => Promise<void>
+  refreshAccessToken: () => Promise<void>
   clearError: () => void
   initialize: () => void
 }
@@ -103,7 +103,7 @@ export const useAuthStore = create<AuthState>()(
           const { refreshToken } = get()
           if (refreshToken) {
             try {
-              await get().refreshToken()
+              await get().refreshAccessToken()
             } catch {
               // Refresh failed, clear auth state
               localStorage.removeItem('access_token')
@@ -122,7 +122,7 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      refreshToken: async () => {
+      refreshAccessToken: async () => {
         const { refreshToken } = get()
         if (!refreshToken) {
           throw new Error('No refresh token available')
