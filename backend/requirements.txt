@@ -13,7 +13,7 @@ python-dotenv==1.2.2
 httpx==0.28.1
 watchdog==3.0.0
 schedule==1.2.2
-GitPython==3.1.41
+GitPython==3.1.46
 pymupdf==1.23.8
 pypdf==6.9.2
 python-docx==1.2.0
