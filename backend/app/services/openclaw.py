@@ -96,9 +96,20 @@ class OpenClawService:
                     now = time.monotonic()
                     global _cached_gateway_token, _auth_retry_cooldown_until
 
+                    # Sanity-check: if cooldown timestamp is corrupted (e.g. from a
+                    # stale value after process restart), reset it.  A valid cooldown
+                    # should never be more than _AUTH_RETRY_COOLDOWN_SEC in the future.
+                    if _auth_retry_cooldown_until > now + _AUTH_RETRY_COOLDOWN_SEC:
+                        logger.warning(
+                            "OpenClaw cooldown timestamp corrupted (until %.0f, now %.0f), resetting",
+                            _auth_retry_cooldown_until, now,
+                        )
+                        _auth_retry_cooldown_until = 0.0
+
                     if now < _auth_retry_cooldown_until:
                         # Recently failed retry — don't hammer. Return error directly.
-                        logger.warning("OpenClaw 401 in cooldown (until %.0f), skipping retry", _auth_retry_cooldown_until)
+                        remaining = _auth_retry_cooldown_until - now
+                        logger.warning("OpenClaw 401 in cooldown (%.0fs remaining), skipping retry", remaining)
                         return {"status": "error", "content": "HTTP 401 (auth retry cooldown active)"}
 
                     # Invalidate config cache and get fresh token from openclaw.json.
