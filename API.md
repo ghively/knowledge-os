@@ -32,8 +32,8 @@ Content-Type: application/json
 **Response (201):**
 ```json
 {
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE",
   "token_type": "bearer",
   "expires_in": 3600
 }
@@ -60,7 +60,7 @@ POST /auth/refresh
 Content-Type: application/json
 
 {
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE"
 }
 ```
 
@@ -92,7 +92,7 @@ Authorization: Bearer {access_token}
 Content-Type: application/json
 
 {
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE"
 }
 ```
 

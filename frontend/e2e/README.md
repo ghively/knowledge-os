@@ -13,6 +13,20 @@ broken."
   ports). Useful for smoke testing the Docker stack specifically.
 - `global-setup.ts` — registers a test user via the API, then logs in via
   the browser and saves storage state.
+
+## Auth storage state
+
+`.auth-storage.json` (referenced by `playwright.config.ts`) is **generated
+at runtime** by `global-setup.ts` — it is not committed to the repo and is
+listed in `.gitignore`. If it is missing, simply run the Playwright suite
+and the global setup will recreate it with a fresh test user:
+
+```bash
+npx playwright test   # global-setup.ts writes e2e/.auth-storage.json
+```
+
+The file contains a short-lived JWT for a throwaway test account
+(`e2ewalk@test.com`); never commit a real token here.
 - `e2e-cron-runner.sh` — one-off shell wrapper used during the original
   manual test sweep.
 - `debug-react310.mjs` — a one-off debug script for a specific React 18.x

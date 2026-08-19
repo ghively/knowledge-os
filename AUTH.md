@@ -52,8 +52,8 @@ Register a new user account.
 **Response:** `TokenResponse`
 ```json
 {
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE",
   "token_type": "bearer",
   "expires_in": 86400,
   "user": {
@@ -86,7 +86,7 @@ Refresh an access token using a refresh token.
 **Request:**
 ```json
 {
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE"
 }
 ```
 
@@ -98,7 +98,7 @@ Logout by invalidating the refresh token.
 **Request:**
 ```json
 {
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.EXAMPLE.EXAMPLE"
 }
 ```
 
