@@ -4,7 +4,7 @@ Session context and project information for Claude Code development.
 
 ---
 
-## ⚡ Read this first when the user asks "what's broken" / "what needs fixing"
+## Read this first when the user asks "what's broken" / "what needs fixing"
 
 The end-to-end suite at `e2e/` writes a fresh report to `e2e/REPORT.md`
 every time it runs. **Whenever the user asks about e2e results, broken
@@ -271,13 +271,12 @@ cd e2e && npm test
 
 ## Earlier Milestones (April 2026)
 
-✅ Documentation rewrite (~190 KB across 17 guides)
-✅ Full code review (9.3/10 score)
-✅ All systems production-ready
-✅ Comprehensive API reference (86 endpoints)
-✅ Agent system fully functional
-✅ Logging system unified (backend + frontend + nginx)
-✅ Security audit passed
+- Documentation rewrite (~190 KB across 17 guides)
+- Manual code review pass completed (see git history for issues found and fixed, e.g. `b996a54`)
+- Comprehensive API reference (86 endpoints)
+- Agent system functional end-to-end
+- Logging system unified (backend + frontend + nginx)
+- Security review pass completed (see [SECURITY.md](SECURITY.md) for known limitations)
 
 ---
 

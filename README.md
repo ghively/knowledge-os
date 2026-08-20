@@ -10,9 +10,9 @@ A **production-ready knowledge management system** with an integrated AI agent r
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-### 📚 Knowledge Management
+### Knowledge Management
 - **Object-Based Notes** — Everything is an object with type, properties, relationships
 - **Outliner Editor** — Block-based editing with unlimited nesting, slash commands, block references
 - **Semantic Search** — Find content by meaning using Qdrant vector DB (384-dim embeddings)
@@ -21,7 +21,7 @@ A **production-ready knowledge management system** with an integrated AI agent r
 - **Flexible Tagging** — `#tags` and `@mentions` auto-parsed and stored as structured properties
 - **File Management** — Real-time folder watching with automatic indexing
 
-### 🤖 AI Agent System (v0.3.0)
+### AI Agent System (v0.3.0)
 - **Markdown-First Agent Identity** — AGENT.md, SOUL.md, MEMORY.md, TOOLS.md definitions
 - **Multi-Provider LLM Routing** — Ollama (default), OpenAI, Anthropic, Google without code changes
 - **ReAct Agent Loop** — Think → Tool → Observe execution pattern with max 10 iterations
@@ -37,7 +37,7 @@ A **production-ready knowledge management system** with an integrated AI agent r
 - **Rate Limiting** — Per-agent (100k tokens/day), per-user (1000 req/day), per-minute (10 req)
 - **Comprehensive Audit** — Every decision logged with 90-day retention
 
-### 🎯 Smart Features
+### Smart Features
 - **Automatic Context Gathering** — Includes parents, links, files, memories
 - **File Format Support** — PDF (PyMuPDF), Word (docx), Code (AST), Images (CLIP)
 - **Multiple Backup Strategies** — Qdrant snapshots, Markdown export, Git sync
@@ -46,7 +46,7 @@ A **production-ready knowledge management system** with an integrated AI agent r
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Docker & Docker Compose** (recommended)
@@ -91,7 +91,7 @@ docker compose up -d --build
 
 ---
 
-## 📋 Architecture
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -124,7 +124,7 @@ docker compose up -d --build
 
 ---
 
-## ⚙️ Agent Configuration
+## Agent Configuration
 
 Each agent directory contains 4 markdown files (`backend/agents/{name}/`):
 
@@ -209,7 +209,7 @@ PUT /api/v1/agents/runtime/{id}/files/AGENT.md
 | `gpt-4o-mini` | OpenAI | Fast, cheap, capable |
 | `claude-sonnet-4-20250514` | Anthropic | Best reasoning |
 
-## 🔒 Security
+## Security
 
 - **JWT Authentication** — Required on all CRUD endpoints with bcrypt-hashed passwords
 - **Rate Limiting** — Per-agent (100k tokens/day), per-user (1000 req/day), per-minute (10 req)
@@ -222,7 +222,7 @@ PUT /api/v1/agents/runtime/{id}/files/AGENT.md
 
 ---
 
-## 📚 API & Documentation
+## API & Documentation
 
 **86 REST Endpoints** across 13 routers:
 - **Authentication** — Register, login, refresh, logout, password reset
@@ -243,7 +243,7 @@ See [API.md](API.md) for complete endpoint documentation with examples.
 - `ws://localhost:8010/ws/system` — System updates, logs, events
 - `ws://localhost:8010/ws/agents/{name}` — Agent-specific updates
 
-## 🛠️ Development
+## Development
 
 ### Quick Start (Docker)
 
@@ -306,7 +306,7 @@ for the full breakdown.
 
 ---
 
-## 💻 Tech Stack
+## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
@@ -323,7 +323,7 @@ for the full breakdown.
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 Complete documentation suite (top-level `.md` files):
 
@@ -348,11 +348,11 @@ Complete documentation suite (top-level `.md` files):
 
 ---
 
-## 📝 License
+## License
 
 MIT License — See [LICENSE](LICENSE) file
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/description`)
