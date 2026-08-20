@@ -12,7 +12,7 @@ We take the security of Knowledge OS seriously. If you believe you have found a 
 
 ### Please do not report security vulnerabilities through public GitHub issues.
 
-Instead, please report them via email to: **security@knowledge-os.local** (replace with your actual security email)
+Instead, please report them privately via a [GitHub Security Advisory](https://github.com/ghively/knowledge-os/security/advisories/new) on this repository.
 
 Please include the following information in your report:
 
