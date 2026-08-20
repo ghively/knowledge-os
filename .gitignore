@@ -4,12 +4,18 @@
 venv/
 node_modules/
 dist/
+build/
 __pycache__/
 *.pyc
+.pytest_cache/
+coverage/
+.coverage
+htmlcov/
 
 backend/venv/
 backend/data/
 backend/backups/
+backend/HEARTBEAT.md
 
 frontend/node_modules/
 frontend/dist/
