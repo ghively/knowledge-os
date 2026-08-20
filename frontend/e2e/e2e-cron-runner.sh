@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-REPO_DIR="/Users/ghively/.openclaw/workspace-knowledge-os/repo"
+REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 REPORT_DIR="$REPO_DIR/frontend/e2e/reports"
 TIMESTAMP=$(date +%Y-%m-%d_%H%M%S)
 REPORT_FILE="$REPORT_DIR/$TIMESTAMP.json"
