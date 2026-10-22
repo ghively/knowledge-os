@@ -2,11 +2,17 @@
 
 [![Version](https://img.shields.io/badge/version-v0.3.0-blue)](#version-history)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)](#status)
+[![Status](https://img.shields.io/badge/status-verification%20pending-orange)](#verification-status)
 
 A **production-ready knowledge management system** with an integrated AI agent runtime. Create objects, take notes, manage tasks, and chat with autonomous AI agents — compatible with any LLM provider.
 
-**Latest:** v0.3.0 | **Updated:** May 2026 | **Status:** ✅ Production Ready
+**Latest:** v0.3.0 | **Updated:** May 2026 | **Status:** Verification pending
+
+---
+
+## Verification status
+
+The most recent recorded workflow for the current `main` commit is [run #208 (2026-08-20)](https://github.com/ghively/knowledge-os/actions/runs/32392604308). The frontend job passed type checking, lint, tests, and build. The backend job stopped during container initialization, before checkout and pytest; the end-to-end job was skipped. This is an infrastructure-level incomplete verification, not a backend test failure. No newer run was visible during the October 20, 2026 portfolio audit. Re-run the full workflow before describing the current checkout as production-ready.
 
 ---
 
