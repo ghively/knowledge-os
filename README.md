@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/badge/version-v0.3.0-blue)](#version-history)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)](#status)
+[![Status](https://img.shields.io/badge/status-active%20development-yellow)](#status)
 
-A **production-ready knowledge management system** with an integrated AI agent runtime. Create objects, take notes, manage tasks, and chat with autonomous AI agents — compatible with any LLM provider.
+A **knowledge management system** with an integrated AI agent runtime. Create objects, take notes, manage tasks, and chat with autonomous AI agents — compatible with any LLM provider.
 
-**Latest:** v0.3.0 | **Updated:** May 2026 | **Status:** ✅ Production Ready
+**Latest:** v0.3.0 | **Updated:** May 2026 | **Status:** 🚧 Active development
 
 ---
 
